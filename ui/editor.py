@@ -7,14 +7,17 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData
 from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
-    QPixmap, QPainter, QIcon, QBrush, QPen, QImage, QTextImageFormat
+    QPixmap, QPainter, QIcon, QBrush, QPen, QImage, QTextImageFormat, QPalette,
+    QAction
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
     QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect,
-    QColorDialog, QDialog, QSpinBox, QAbstractSpinBox
+    QColorDialog, QDialog, QSpinBox, QAbstractSpinBox, QMenu,
+    QFileDialog, QSlider, QDialogButtonBox
 )
 from core.database import Category, get_assets_dir, get_assets_root
+from core.settings import load_settings, save_settings
 from .theme import THEMES, DEFAULT_THEME, get_editor_qss
 
 
@@ -325,9 +328,86 @@ class _MixedTextEdit(QTextEdit):
         self.setTabChangesFocus(False)
         self.setMouseTracking(False)
         self.setAcceptRichText(False)
+        self.viewport().setAutoFillBackground(False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self._bg_raw_pixmap = None
+        self._bg_path = ""
+        self._bg_alpha = 0.18
 
     def set_highlighter(self, hl: MarkdownMixedHighlighter):
         self._hl = hl
+
+    def set_background_image(self, path: str, alpha=None):
+        if path and isinstance(path, str):
+            pm = QPixmap(path)
+            if not pm.isNull():
+                self._bg_raw_pixmap = pm
+                self._bg_path = path
+            else:
+                self._bg_raw_pixmap = None
+                self._bg_path = ""
+        else:
+            self._bg_raw_pixmap = None
+            self._bg_path = ""
+        if alpha is not None:
+            try:
+                a = float(alpha)
+                if 0.0 <= a <= 1.0:
+                    self._bg_alpha = a
+            except Exception:
+                pass
+        self.viewport().update()
+
+    def clear_background_image(self):
+        self._bg_raw_pixmap = None
+        self._bg_path = ""
+        self.viewport().update()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        if self._bg_raw_pixmap is not None:
+            self.viewport().update()
+
+    def paintEvent(self, e):
+        vp = self.viewport()
+        if self._bg_raw_pixmap is not None and not self._bg_raw_pixmap.isNull():
+            painter = QPainter(vp)
+            try:
+                painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+                painter.setOpacity(self._bg_alpha)
+                draw_rect = vp.rect()
+                pm = self._bg_raw_pixmap
+                pw = pm.width()
+                ph = pm.height()
+                dw = draw_rect.width()
+                dh = draw_rect.height()
+                if pw > 0 and ph > 0 and dw > 0 and dh > 0:
+                    src_ratio = pw / float(ph)
+                    dst_ratio = dw / float(dh)
+                    if src_ratio > dst_ratio:
+                        new_h = dh
+                        new_w = int(new_h * src_ratio)
+                        x_off = int((dw - new_w) / 2)
+                        y_off = 0
+                    else:
+                        new_w = dw
+                        new_h = int(new_w / src_ratio)
+                        x_off = 0
+                        y_off = int((dh - new_h) / 2)
+                    scaled = pm.scaled(
+                        new_w, new_h,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    painter.drawPixmap(x_off, y_off, scaled)
+                painter.setOpacity(1.0)
+                pal = vp.palette()
+                base_color = pal.color(QPalette.ColorRole.Base)
+                base_color.setAlpha(220)
+                painter.fillRect(draw_rect, base_color)
+            finally:
+                painter.end()
+        super().paintEvent(e)
 
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         if source.hasImage():
@@ -367,8 +447,14 @@ class MarkdownEditor(QWidget):
         self.text_color_btn.clicked.connect(self._choose_text_color)
         self.highlight_color_btn.clicked.connect(self._choose_highlight_color)
         self.edit.paste_image_requested.connect(self._handle_paste_image)
+        self.bg_image_btn.clicked.connect(self._show_background_menu)
+        self._app_settings = load_settings()
 
         self.apply_theme(theme_name, initial=True)
+        self.edit.set_background_image(
+            self._app_settings.get("bg_image_path", ""),
+            self._app_settings.get("bg_image_alpha", 0.18)
+        )
         self._constructing = False
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -628,6 +714,19 @@ class MarkdownEditor(QWidget):
         self._toolbar_btns.append(self.highlight_color_btn)
         bar.addWidget(self.highlight_color_btn)
 
+        sep_bg = QFrame()
+        sep_bg.setFixedWidth(1)
+        self._toolbar_seps.append(sep_bg)
+        bar.addWidget(sep_bg)
+
+        self.bg_image_btn = QToolButton()
+        self.bg_image_btn.setText("🖼 背景")
+        self.bg_image_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.bg_image_btn.setToolTip("编辑器背景图：选择本地图片作为背景、调整透明度或清除")
+        self.bg_image_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._toolbar_btns.append(self.bg_image_btn)
+        bar.addWidget(self.bg_image_btn)
+
         bar.addStretch(1)
         return bar
 
@@ -877,6 +976,83 @@ class MarkdownEditor(QWidget):
         self.edit.setTextCursor(cursor)
         self._render_images_in_doc()
         self._on_any_changed()
+
+    def _show_background_menu(self):
+        menu = QMenu(self)
+        act_choose = QAction("📁 选择本地图片作为背景", self)
+        act_choose.triggered.connect(self._choose_background_image)
+        menu.addAction(act_choose)
+
+        act_alpha = QAction("🕶 调整背景透明度", self)
+        act_alpha.triggered.connect(self._adjust_bg_alpha)
+        menu.addAction(act_alpha)
+
+        menu.addSeparator()
+
+        act_clear = QAction("❌ 清除背景图（恢复纯色主题）", self)
+        act_clear.triggered.connect(self._clear_background_image)
+        menu.addAction(act_clear)
+        menu.exec(self.bg_image_btn.mapToGlobal(self.bg_image_btn.rect().bottomLeft()))
+
+    def _choose_background_image(self):
+        start_dir = os.path.expanduser("~")
+        if self._app_settings.get("bg_image_path"):
+            p = self._app_settings["bg_image_path"]
+            if os.path.isdir(os.path.dirname(p)):
+                start_dir = os.path.dirname(p)
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "选择背景图片", start_dir,
+            "图片文件 (*.png *.jpg *.jpeg *.bmp *.gif *.webp *.tif *.tiff);;所有文件 (*.*)"
+        )
+        if not filename or not os.path.exists(filename):
+            return
+        self._app_settings = save_settings(bg_image_path=filename)
+        alpha = self._app_settings.get("bg_image_alpha", 0.18)
+        self.edit.set_background_image(filename, alpha)
+
+    def _adjust_bg_alpha(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("调整背景图透明度")
+        dlg.setMinimumWidth(420)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(22, 20, 22, 18)
+        cur_val = int(self._app_settings.get("bg_image_alpha", 0.18) * 100)
+        top_row = QHBoxLayout()
+        lbl = QLabel("透明度（值越小，背景图越淡）")
+        top_row.addWidget(lbl)
+        top_row.addStretch(1)
+        val_lbl = QLabel(f"{cur_val}%")
+        val_lbl.setMinimumWidth(46)
+        val_lbl.setStyleSheet("font-weight:600;")
+        top_row.addWidget(val_lbl)
+        lay.addLayout(top_row)
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(2, 90)
+        slider.setValue(max(2, min(90, cur_val)))
+        lay.addWidget(slider)
+        tip = QLabel("建议值：浅背景 12%～25%，深色背景 20%～40%")
+        tip.setStyleSheet("color:#888; font-size:12px;")
+        lay.addWidget(tip)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText("确定")
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        lay.addWidget(bb)
+        slider.valueChanged.connect(lambda v: val_lbl.setText(f"{v}%"))
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_alpha = slider.value() / 100.0
+            self._app_settings = save_settings(bg_image_alpha=new_alpha)
+            path = self._app_settings.get("bg_image_path", "")
+            if path:
+                self.edit.set_background_image(path, new_alpha)
+            else:
+                self.edit._bg_alpha = new_alpha
+                self.edit.viewport().update()
+
+    def _clear_background_image(self):
+        self._app_settings = save_settings(bg_image_path="")
+        self.edit.clear_background_image()
 
     def _on_src_changed(self):
         self._on_any_changed()
