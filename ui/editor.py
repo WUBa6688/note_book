@@ -9,7 +9,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
     QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect,
-    QColorDialog
+    QColorDialog, QDialog, QSpinBox, QAbstractSpinBox
 )
 from core.database import Category
 from .theme import THEMES, DEFAULT_THEME, get_editor_qss
@@ -681,6 +681,31 @@ class MarkdownEditor(QWidget):
         btn.setIcon(icon)
         btn.setIconSize(QSize(22, 16))
 
+    def _open_color_dialog(self, initial: QColor, title: str) -> QColor:
+        dlg = QColorDialog(initial, self)
+        dlg.setWindowTitle(title)
+        dlg.setOption(QColorDialog.ColorDialogOption.ShowAlphaChannel, False)
+        for sb in dlg.findChildren(QSpinBox):
+            sb.setMinimumWidth(116)
+            sb.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
+            sb.setStyleSheet(
+                "QSpinBox { padding: 4px 26px 4px 8px; font-size: 13px; }"
+                "QSpinBox::up-button, QSpinBox::down-button { width: 20px; }"
+            )
+            f = sb.font()
+            f.setPointSize(11)
+            sb.setFont(f)
+        for le in dlg.findChildren(QLineEdit):
+            le.setStyleSheet(
+                "QLineEdit { padding: 5px 8px; font-size: 13px; min-height: 22px; }"
+            )
+            lf = le.font()
+            lf.setPointSize(11)
+            le.setFont(lf)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            return dlg.currentColor()
+        return QColor()
+
     def _apply_font_size_to_selection(self, index: int):
         pt = self.font_size_combo.itemData(index)
         if pt is None:
@@ -696,8 +721,8 @@ class MarkdownEditor(QWidget):
         self._on_any_changed()
 
     def _choose_text_color(self):
-        color = QColorDialog.getColor(
-            self._last_text_color, self, "选择文字颜色（前景）"
+        color = self._open_color_dialog(
+            self._last_text_color, "选择文字颜色（前景）"
         )
         if not color.isValid():
             return
@@ -714,8 +739,8 @@ class MarkdownEditor(QWidget):
         self._on_any_changed()
 
     def _choose_highlight_color(self):
-        color = QColorDialog.getColor(
-            self._last_highlight_color, self, "选择文字底色（高亮填充）"
+        color = self._open_color_dialog(
+            self._last_highlight_color, "选择文字底色（高亮填充）"
         )
         if not color.isValid():
             return
