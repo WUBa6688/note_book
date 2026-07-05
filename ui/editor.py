@@ -355,8 +355,8 @@ class MarkdownEditor(QWidget):
         self.header.setGraphicsEffect(self.hdr_shadow)
 
         hdr_layout = QVBoxLayout(self.header)
-        hdr_layout.setContentsMargins(60, 28, 60, 18)
-        hdr_layout.setSpacing(14)
+        hdr_layout.setContentsMargins(64, 20, 64, 14)
+        hdr_layout.setSpacing(12)
 
         self.title_edit = QLineEdit()
         self.title_edit.setPlaceholderText("未命名笔记")
@@ -416,7 +416,7 @@ class MarkdownEditor(QWidget):
             "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "sans-serif"
         ])
         self.edit.setFont(base_font)
-        self.edit.setViewportMargins(80, 80, 80, 160)
+        self.edit.setViewportMargins(64, 40, 64, 48)
         doc = self.edit.document()
         doc.setDocumentMargin(0)
         root_frame = doc.rootFrame()
