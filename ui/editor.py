@@ -1,13 +1,15 @@
 import re
-from typing import List
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from typing import List, Optional
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
 from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
-    QKeySequence, QShortcut, QTextBlockFormat, QTextDocument
+    QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
+    QPixmap, QPainter, QIcon, QBrush, QPen
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
-    QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect
+    QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect,
+    QColorDialog
 )
 from core.database import Category
 from .theme import THEMES, DEFAULT_THEME, get_editor_qss
@@ -44,11 +46,15 @@ def _fmt(**kwargs):
 
 
 def _build_md_formats(t: dict) -> dict:
-    """Build markdown highlight QTextCharFormat from theme dict."""
-    # 零风险几乎零占宽：超小字号 0.5pt + 前景完全透明 → marker 几乎不占宽度，
-    # 且绝不修改 letterSpacing（不管是 Percentage 还是 Absolute，会触发 Qt
-    # 的负宽度或 clip 问题，彻底规避。小字号由 MinimumHeight 行高托底，
-    # 不会塌缩行高。
+    """Build markdown highlight QTextCharFormat from theme dict.
+
+    NOTE: For *content* ranges (headings, link text, quote body, inline
+    code, code block body) we deliberately do NOT set `foreground` in
+    the syntax-highlighter layer, so the per-character colors the user
+    applies via the "Text Color" tool are NOT overwritten on every
+    rehighlight. Font styles (bold/size/family/underline) and block
+    backgrounds are still applied by the highlighter.
+    """
     mh_font = QFont()
     mh_font.setPointSizeF(0.5)
     marker_hidden = QTextCharFormat()
@@ -66,26 +72,26 @@ def _build_md_formats(t: dict) -> dict:
         foreground=t["codeblock_fence"], family="Consolas", size=11, letter_spacing_pct=0
     )
     code_inline_content = _fmt(
-        foreground=t["inlinecode_fg"], background=t["inlinecode_bg"],
+        background=t["inlinecode_bg"],
         family="Consolas", size=13, letter_spacing_pct=0
     )
     codeblock_content = _fmt(
-        foreground=t["codeblock_fg"], background=t["codeblock_bg"],
+        background=t["codeblock_bg"],
         family="Consolas", size=12, letter_spacing_pct=0
     )
     block_quote_fmt = _fmt(
-        foreground=t["quote_fg"], background=t["quote_bg"], letter_spacing_pct=0
+        background=t["quote_bg"], letter_spacing_pct=0
     )
     ul_marker = _fmt(foreground=t["list_marker"], bold=True, letter_spacing_pct=0)
     ol_marker = _fmt(foreground=t["list_marker"], bold=True, letter_spacing_pct=0)
-    link_text_fmt = _fmt(foreground=t["link"], underline=True, letter_spacing_pct=0)
+    link_text_fmt = _fmt(underline=True, letter_spacing_pct=0)
 
-    h1 = _fmt(foreground=t["h1"], bold=True, size=22, letter_spacing_pct=0)
-    h2 = _fmt(foreground=t["h2"], bold=True, size=18, letter_spacing_pct=0)
-    h3 = _fmt(foreground=t["h3"], bold=True, size=16, letter_spacing_pct=0)
-    h4 = _fmt(foreground=t["h4"], bold=True, size=14, letter_spacing_pct=0)
-    h5 = _fmt(foreground=t["h5"], bold=True, size=13, letter_spacing_pct=0)
-    h6 = _fmt(foreground=t["h6"], bold=True, size=12, letter_spacing_pct=0)
+    h1 = _fmt(bold=True, size=22, letter_spacing_pct=0)
+    h2 = _fmt(bold=True, size=18, letter_spacing_pct=0)
+    h3 = _fmt(bold=True, size=16, letter_spacing_pct=0)
+    h4 = _fmt(bold=True, size=14, letter_spacing_pct=0)
+    h5 = _fmt(bold=True, size=13, letter_spacing_pct=0)
+    h6 = _fmt(bold=True, size=12, letter_spacing_pct=0)
     bold = _fmt(bold=True, letter_spacing_pct=0)
     italic = _fmt(italic=True, letter_spacing_pct=0)
     bold_italic = _fmt(bold=True, italic=True, letter_spacing_pct=0)
@@ -333,6 +339,15 @@ class MarkdownEditor(QWidget):
         self._toolbar_seps = []
         self._constructing = True
         self._build_ui()
+
+        self._last_text_color = QColor("#1F2937")
+        self._last_highlight_color = QColor("#FEF08A")
+        self._update_color_button_icon(self.text_color_btn, self._last_text_color)
+        self._update_color_button_icon(self.highlight_color_btn, self._last_highlight_color)
+        self.font_size_combo.currentIndexChanged.connect(self._apply_font_size_to_selection)
+        self.text_color_btn.clicked.connect(self._choose_text_color)
+        self.highlight_color_btn.clicked.connect(self._choose_highlight_color)
+
         self.apply_theme(theme_name, initial=True)
         self._constructing = False
         self._save_timer = QTimer(self)
@@ -468,6 +483,10 @@ class MarkdownEditor(QWidget):
         self.cat_label.setStyleSheet(
             f"color:{t['text_secondary']}; font-size:12px; font-weight:500;"
         )
+        self.font_size_combo.setStyleSheet(qss["category_combo"])
+        self.font_size_label.setStyleSheet(
+            f"color:{t['text_secondary']}; font-size:12px; font-weight:500; padding:0 4px;"
+        )
         for sep in self._toolbar_seps:
             sep.setStyleSheet(qss["toolbar_sep"])
         for btn in self._toolbar_btns:
@@ -533,6 +552,62 @@ class MarkdownEditor(QWidget):
             btn.clicked.connect(func)
             self._toolbar_btns.append(btn)
             bar.addWidget(btn)
+
+        sep = QFrame()
+        sep.setFixedWidth(1)
+        self._toolbar_seps.append(sep)
+        bar.addWidget(sep)
+
+        self.font_size_label = QLabel("字号")
+        bar.addWidget(self.font_size_label)
+        self.font_size_combo = QComboBox()
+        self.font_size_combo.setFixedWidth(98)
+        self.font_size_combo.setToolTip("选中文本后调整字号（含中文字号：八号～一号）")
+        _font_presets = [
+            ("八号", 5.0), ("七号", 5.5), ("小六", 6.5), ("六号", 7.5),
+            ("小五", 9.0), ("五号", 10.5), ("小四", 12.0), ("四号", 14.0),
+            ("小三", 15.0), ("三号", 16.0), ("小二", 18.0), ("二号", 22.0),
+            ("小一", 24.0), ("一号", 26.0), ("——", None),
+            ("8pt", 8.0), ("28pt", 28.0), ("36pt", 36.0),
+            ("48pt", 48.0), ("72pt", 72.0),
+        ]
+        for label, pt in _font_presets:
+            self.font_size_combo.addItem(label, pt)
+            if pt is None:
+                idx = self.font_size_combo.count() - 1
+                f = self.font_size_combo.model().item(idx)
+                f.setEnabled(False)
+                self.font_size_combo.model().item(idx).setFlags(
+                    self.font_size_combo.model().item(idx).flags()
+                    & ~Qt.ItemFlag.ItemIsEnabled
+                )
+        bar.addWidget(self.font_size_combo)
+
+        sep = QFrame()
+        sep.setFixedWidth(1)
+        self._toolbar_seps.append(sep)
+        bar.addWidget(sep)
+
+        self.text_color_btn = QToolButton()
+        self.text_color_btn.setText("A")
+        self.text_color_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.text_color_btn.setToolTip("文字颜色：选中文字后点击修改前景色")
+        self.text_color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        f = QFont()
+        f.setBold(True)
+        f.setUnderline(True)
+        self.text_color_btn.setFont(f)
+        self._toolbar_btns.append(self.text_color_btn)
+        bar.addWidget(self.text_color_btn)
+
+        self.highlight_color_btn = QToolButton()
+        self.highlight_color_btn.setText("🖍")
+        self.highlight_color_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.highlight_color_btn.setToolTip("文字高亮：选中文字后点击修改底色（文字填充颜色）")
+        self.highlight_color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._toolbar_btns.append(self.highlight_color_btn)
+        bar.addWidget(self.highlight_color_btn)
+
         bar.addStretch(1)
         return bar
 
@@ -592,6 +667,69 @@ class MarkdownEditor(QWidget):
             "|-----|-----|-----|\n"
             "| A   | B   | C   |\n"
         )
+
+    def _update_color_button_icon(self, btn: QToolButton, color: QColor):
+        pm = QPixmap(22, 16)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QBrush(color))
+        p.setPen(QPen(QColor(128, 128, 128, 180), 1))
+        p.drawRoundedRect(1, 2, 20, 12, 3, 3)
+        p.end()
+        icon = QIcon(pm)
+        btn.setIcon(icon)
+        btn.setIconSize(QSize(22, 16))
+
+    def _apply_font_size_to_selection(self, index: int):
+        pt = self.font_size_combo.itemData(index)
+        if pt is None:
+            return
+        cursor = self._get_cursor()
+        fmt = QTextCharFormat()
+        fmt.setFontPointSize(float(pt))
+        if cursor.hasSelection():
+            cursor.mergeCharFormat(fmt)
+            self._set_cursor(cursor)
+        else:
+            self.edit.mergeCurrentCharFormat(fmt)
+        self._on_any_changed()
+
+    def _choose_text_color(self):
+        color = QColorDialog.getColor(
+            self._last_text_color, self, "选择文字颜色（前景）"
+        )
+        if not color.isValid():
+            return
+        self._last_text_color = color
+        self._update_color_button_icon(self.text_color_btn, color)
+        cursor = self._get_cursor()
+        fmt = QTextCharFormat()
+        fmt.setForeground(color)
+        if cursor.hasSelection():
+            cursor.mergeCharFormat(fmt)
+            self._set_cursor(cursor)
+        else:
+            self.edit.mergeCurrentCharFormat(fmt)
+        self._on_any_changed()
+
+    def _choose_highlight_color(self):
+        color = QColorDialog.getColor(
+            self._last_highlight_color, self, "选择文字底色（高亮填充）"
+        )
+        if not color.isValid():
+            return
+        self._last_highlight_color = color
+        self._update_color_button_icon(self.highlight_color_btn, color)
+        cursor = self._get_cursor()
+        fmt = QTextCharFormat()
+        fmt.setBackground(color)
+        if cursor.hasSelection():
+            cursor.mergeCharFormat(fmt)
+            self._set_cursor(cursor)
+        else:
+            self.edit.mergeCurrentCharFormat(fmt)
+        self._on_any_changed()
 
     def _on_src_changed(self):
         self._on_any_changed()
