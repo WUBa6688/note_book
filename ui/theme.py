@@ -1,6 +1,7 @@
 """
 Zhuibook Theme System
-Three themes: 🌿 MATCHA / 🍋 LEMON / ☁️ FOG
+Light themes (3): 🌿 MATCHA / 🍋 LEMON / ☁️  FOG
+Dark themes (3):  🌙 MATCHA DARK / 🌙 LEMON DARK / 🌙 FOG DARK
 All colors centralized, no hardcoded tokens in widgets.
 """
 from __future__ import annotations
@@ -10,48 +11,52 @@ from typing import Dict, Any
 THEMES: Dict[str, Dict[str, Any]] = {}
 
 # ---------------------------------------------------------------------------
-# 🌿 MATCHA (抹茶绿 — 默认主题，清新护眼浅绿色系)
+# 🌿 MATCHA (抹茶绿 — 默认浅色主题，清新护眼浅绿色系)
 # ---------------------------------------------------------------------------
 THEMES["matcha"] = {
     "name": "🌿 抹茶绿",
+    "group": "light",
 
     # ---- 主色（温和抹茶绿，低饱和不刺眼） ----
-    "primary":              "#5A9E7E",   # 主强调色（深抹茶）
-    "primary_text":         "#4B8A6D",   # 主色文字（略深）
-    "primary_light":        "#6CB18F",   # 浅主色
-    "primary_gradient_top": "#6EBD98",   # 渐变顶部
-    "primary_gradient_bot": "#529477",   # 渐变底部
+    "primary":              "#5A9E7E",
+    "primary_text":         "#4B8A6D",
+    "primary_light":        "#6CB18F",
+    "primary_gradient_top": "#6EBD98",
+    "primary_gradient_bot": "#529477",
     "primary_hover_top":    "#60AE87",
     "primary_hover_bot":    "#46856A",
     "primary_pressed_top":  "#549F7D",
     "primary_pressed_bot":  "#3D7860",
 
     # ---- 背景层 ----
-    "global_bg":            "#F2F7F0",   # 最外层（MainWindow）
-    "sidebar_bg":           "#EFF5EC",   # 侧边栏底
-    "sidebar_header_top":   "#E6F0E1",   # 侧栏 header 渐变顶
-    "sidebar_header_bot":   "#EFF5EC",   # 侧栏 header 渐变底
-    "editor_header_bg":     "#FFFFFF",   # 编辑区 header
-    "editor_bg":            "#FFFFFF",   # 编辑内容区
-    "toolbar_bg":           "#F0F5ED",   # 工具栏容器背景
-    "status_bar_bg":        "#F2F7F0",   # 状态栏
+    "global_bg":            "#F2F7F0",
+    "sidebar_bg":           "#EFF5EC",
+    "sidebar_header_top":   "#E6F0E1",
+    "sidebar_header_bot":   "#EFF5EC",
+    "editor_header_bg":     "#FFFFFF",
+    "editor_bg":            "#FFFFFF",
+    "toolbar_bg":           "#F0F5ED",
+    "status_bar_bg":        "#F2F7F0",
+    "input_bg":             "#FFFFFF",
+    "card_bg":              "#FFFFFF",
+    "surface_bg":           "#FFFFFF",
 
     # ---- 边框 / 分隔 ----
-    "border":               "#D6E0D1",   # 柔和分隔
-    "border_strong":        "#C5D2BF",   # hover 时边框
+    "border":               "#D6E0D1",
+    "border_strong":        "#C5D2BF",
 
     # ---- 文本 ----
-    "text_primary":         "#2E3630",   # 正文深墨绿灰（不是纯黑，更温和）
-    "text_secondary":       "#828E86",   # 次级：字数、分类标签
-    "text_tertiary":        "#B9C2BB",   # 分隔点 dot
-    "title_color":          "#5A9E7E",   # 侧栏 logo、标题输入
+    "text_primary":         "#2E3630",
+    "text_secondary":       "#828E86",
+    "text_tertiary":        "#B9C2BB",
+    "title_color":          "#5A9E7E",
 
     # ---- 选中 / hover 底 ----
-    "selection_bg":         "#DFEEE4",   # 文本选中淡绿底
-    "selection_fg":         "#4B8A6D",   # 选中文本字色
-    "list_hover_bg":        "#E7EEE3",   # 笔记项 hover（暖绿米）
-    "list_selected_bg":     "#E5EEE7",   # 笔记项选中底
-    "list_selected_left":   "#5A9E7E",   # 选中左侧主色竖条
+    "selection_bg":         "#DFEEE4",
+    "selection_fg":         "#4B8A6D",
+    "list_hover_bg":        "#E7EEE3",
+    "list_selected_bg":     "#E5EEE7",
+    "list_selected_left":   "#5A9E7E",
     "list_selected_fg":     "#4B8A6D",
 
     # ---- Markdown 语法颜色 ----
@@ -76,14 +81,15 @@ THEMES["matcha"] = {
     # ---- 滚动条 / 状态色 ----
     "scrollbar_handle":     "#C9D4C3",
     "scrollbar_hover":      "#B1BFA9",
-    "save_color":           "#4B9A6D",   # 已保存提示绿色
+    "save_color":           "#4B9A6D",
 }
 
 # ---------------------------------------------------------------------------
-# 🍋 LEMON (柠檬奶黄 — 温暖浅黄色系)
+# 🍋 LEMON (柠檬奶黄 — 温暖浅色黄系)
 # ---------------------------------------------------------------------------
 THEMES["lemon"] = {
     "name": "🍋 柠檬奶黄",
+    "group": "light",
 
     "primary":              "#D7A94A",
     "primary_text":         "#B98A2C",
@@ -103,6 +109,9 @@ THEMES["lemon"] = {
     "editor_bg":            "#FFFFFF",
     "toolbar_bg":           "#F8F1DA",
     "status_bar_bg":        "#FBF6E7",
+    "input_bg":             "#FFFFFF",
+    "card_bg":              "#FFFFFF",
+    "surface_bg":           "#FFFFFF",
 
     "border":               "#E8DEBF",
     "border_strong":        "#DBCFA7",
@@ -143,10 +152,11 @@ THEMES["lemon"] = {
 }
 
 # ---------------------------------------------------------------------------
-# ☁️ FOG (雾蓝 — 原冷蓝色系，作为保留可选)
+# ☁️  FOG (雾蓝 — 原冷蓝浅色系)
 # ---------------------------------------------------------------------------
 THEMES["fog"] = {
     "name": "☁️  雾蓝",
+    "group": "light",
 
     "primary":              "#5B8DEF",
     "primary_text":         "#4776D6",
@@ -166,6 +176,9 @@ THEMES["fog"] = {
     "editor_bg":            "#FFFFFF",
     "toolbar_bg":           "#FBFAF7",
     "status_bar_bg":        "#FBFAF7",
+    "input_bg":             "#FFFFFF",
+    "card_bg":              "#FFFFFF",
+    "surface_bg":           "#FFFFFF",
 
     "border":               "#EDE9E0",
     "border_strong":        "#CFC9BB",
@@ -203,6 +216,207 @@ THEMES["fog"] = {
     "scrollbar_handle":     "#DDD7C7",
     "scrollbar_hover":      "#C5BEAC",
     "save_color":           "#3FA362",
+}
+
+# ---------------------------------------------------------------------------
+# 🌙 MATCHA DARK (抹茶深夜绿 — 深色模式默认推荐，低灰绿光感不刺眼)
+# ---------------------------------------------------------------------------
+THEMES["matcha_dark"] = {
+    "name": "🌙 深夜抹茶绿",
+    "group": "dark",
+
+    "primary":              "#7FC9A6",
+    "primary_text":         "#A4DCBE",
+    "primary_light":        "#8FD4B3",
+    "primary_gradient_top": "#7FC9A6",
+    "primary_gradient_bot": "#5FA585",
+    "primary_hover_top":    "#8FD4B3",
+    "primary_hover_bot":    "#6BB08F",
+    "primary_pressed_top":  "#6BB08F",
+    "primary_pressed_bot":  "#4E9174",
+
+    "global_bg":            "#1A1F1D",
+    "sidebar_bg":           "#1D2220",
+    "sidebar_header_top":   "#212725",
+    "sidebar_header_bot":   "#1D2220",
+    "editor_header_bg":     "#1F2523",
+    "editor_bg":            "#222927",
+    "toolbar_bg":           "#242B29",
+    "status_bar_bg":        "#1A1F1D",
+    "input_bg":             "#262E2C",
+    "card_bg":              "#242B29",
+    "surface_bg":           "#2A322F",
+
+    "border":               "#333D3A",
+    "border_strong":        "#45534E",
+
+    "text_primary":         "#E6EFEC",
+    "text_secondary":       "#9DA8A3",
+    "text_tertiary":        "#64716C",
+    "title_color":          "#7FC9A6",
+
+    "selection_bg":         "#2E4A3D",
+    "selection_fg":         "#D8F0E4",
+    "list_hover_bg":        "#272F2D",
+    "list_selected_bg":     "#2A3A33",
+    "list_selected_left":   "#7FC9A6",
+    "list_selected_fg":     "#BEE6D4",
+
+    "h1":                   "#A4DCBE",
+    "h2":                   "#93D1B1",
+    "h3":                   "#83C6A4",
+    "h4":                   "#E6EFEC",
+    "h5":                   "#CBD4D1",
+    "h6":                   "#9DA8A3",
+    "list_marker":          "#8FD4B3",
+    "link":                 "#7FC9A6",
+    "link_url":             "#92A79F",
+    "quote_bg":             "#2A3330",
+    "quote_fg":             "#BFCBC5",
+    "inlinecode_bg":        "#3A312C",
+    "inlinecode_fg":        "#E29D8C",
+    "codeblock_bg":         "#2D2A24",
+    "codeblock_fg":         "#D9E2DE",
+    "codeblock_fence":      "#7A837F",
+    "marker_visible":       "#82908B",
+
+    "scrollbar_handle":     "#404B47",
+    "scrollbar_hover":      "#505E58",
+    "save_color":           "#7FC9A6",
+}
+
+# ---------------------------------------------------------------------------
+# 🌙 LEMON DARK (柠檬深夜黄 — 温暖深色模式，适合夜间)
+# ---------------------------------------------------------------------------
+THEMES["lemon_dark"] = {
+    "name": "🌙 深夜柠檬黄",
+    "group": "dark",
+
+    "primary":              "#E5B966",
+    "primary_text":         "#F0CC88",
+    "primary_light":        "#ECC478",
+    "primary_gradient_top": "#ECC478",
+    "primary_gradient_bot": "#C99A47",
+    "primary_hover_top":    "#F1CE88",
+    "primary_hover_bot":    "#D3A552",
+    "primary_pressed_top":  "#D3A552",
+    "primary_pressed_bot":  "#B18639",
+
+    "global_bg":            "#1F1D17",
+    "sidebar_bg":           "#22201A",
+    "sidebar_header_top":   "#27241E",
+    "sidebar_header_bot":   "#22201A",
+    "editor_header_bg":     "#25221C",
+    "editor_bg":            "#28251F",
+    "toolbar_bg":           "#2A2721",
+    "status_bar_bg":        "#1F1D17",
+    "input_bg":             "#2D2A23",
+    "card_bg":              "#2A2721",
+    "surface_bg":           "#302C25",
+
+    "border":               "#3B362B",
+    "border_strong":        "#524A38",
+
+    "text_primary":         "#F0EADB",
+    "text_secondary":       "#B0A793",
+    "text_tertiary":        "#706855",
+    "title_color":          "#E5B966",
+
+    "selection_bg":         "#4B3F25",
+    "selection_fg":         "#F8ECC9",
+    "list_hover_bg":        "#2B271F",
+    "list_selected_bg":     "#3A3224",
+    "list_selected_left":   "#E5B966",
+    "list_selected_fg":     "#F0D9A3",
+
+    "h1":                   "#F0CC88",
+    "h2":                   "#EAC279",
+    "h3":                   "#E5B966",
+    "h4":                   "#F0EADB",
+    "h5":                   "#D4CCBB",
+    "h6":                   "#B0A793",
+    "list_marker":          "#ECC478",
+    "link":                 "#E5B966",
+    "link_url":             "#A59B85",
+    "quote_bg":             "#2E2A22",
+    "quote_fg":             "#C6BCA7",
+    "inlinecode_bg":        "#3A2A2E",
+    "inlinecode_fg":        "#E29DB0",
+    "codeblock_bg":         "#2F2B23",
+    "codeblock_fg":         "#DCD4C0",
+    "codeblock_fence":      "#7D7562",
+    "marker_visible":       "#8E8571",
+
+    "scrollbar_handle":     "#4A4332",
+    "scrollbar_hover":      "#5D533F",
+    "save_color":           "#D9BC6A",
+}
+
+# ---------------------------------------------------------------------------
+# 🌙 FOG DARK (雾蓝深夜 — 冷蓝深色模式，原经典深色)
+# ---------------------------------------------------------------------------
+THEMES["fog_dark"] = {
+    "name": "🌙 深夜雾蓝",
+    "group": "dark",
+
+    "primary":              "#7AA9F5",
+    "primary_text":         "#9DBBF6",
+    "primary_light":        "#8BB4F7",
+    "primary_gradient_top": "#7AA9F5",
+    "primary_gradient_bot": "#5C8DE0",
+    "primary_hover_top":    "#8BB4F7",
+    "primary_hover_bot":    "#6897EC",
+    "primary_pressed_top":  "#6897EC",
+    "primary_pressed_bot":  "#4E79D1",
+
+    "global_bg":            "#171C26",
+    "sidebar_bg":           "#1A1F2A",
+    "sidebar_header_top":   "#1E2431",
+    "sidebar_header_bot":   "#1A1F2A",
+    "editor_header_bg":     "#1C222D",
+    "editor_bg":            "#1F2631",
+    "toolbar_bg":           "#212935",
+    "status_bar_bg":        "#171C26",
+    "input_bg":             "#232C39",
+    "card_bg":              "#212935",
+    "surface_bg":           "#283240",
+
+    "border":               "#2F3948",
+    "border_strong":        "#435064",
+
+    "text_primary":         "#E4EAF4",
+    "text_secondary":       "#98A1B1",
+    "text_tertiary":        "#606978",
+    "title_color":          "#7AA9F5",
+
+    "selection_bg":         "#2B3B5F",
+    "selection_fg":         "#D9E4FF",
+    "list_hover_bg":        "#1F2531",
+    "list_selected_bg":     "#253046",
+    "list_selected_left":   "#7AA9F5",
+    "list_selected_fg":     "#B9CCF4",
+
+    "h1":                   "#9DBBF6",
+    "h2":                   "#8FB2F5",
+    "h3":                   "#81A8F4",
+    "h4":                   "#E4EAF4",
+    "h5":                   "#CCD3DF",
+    "h6":                   "#98A1B1",
+    "list_marker":          "#8BB4F7",
+    "link":                 "#7AA9F5",
+    "link_url":             "#8E97A7",
+    "quote_bg":             "#242B37",
+    "quote_fg":             "#BFC6D3",
+    "inlinecode_bg":        "#352B31",
+    "inlinecode_fg":        "#E59AB5",
+    "codeblock_bg":         "#262A31",
+    "codeblock_fg":         "#D7DEE9",
+    "codeblock_fence":      "#6E7787",
+    "marker_visible":       "#7F8795",
+
+    "scrollbar_handle":     "#3A4355",
+    "scrollbar_hover":      "#495469",
+    "save_color":           "#7ECB98",
 }
 
 DEFAULT_THEME = "matcha"
@@ -257,7 +471,7 @@ def get_sidebar_qss(t: Dict[str, Any]) -> Dict[str, str]:
             padding: 9px 14px;
             border: 1px solid {t['border']};
             border-radius: 8px;
-            background: #FFFFFF;
+            background: {t['input_bg']};
             font-size: 13px;
             color: {t['text_primary']};
             selection-background-color: {t['selection_bg']};
@@ -266,7 +480,7 @@ def get_sidebar_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QLineEdit:hover {{ border: 1px solid {t['border_strong']}; }}
         QLineEdit:focus {{
             border: 1px solid {t['primary']};
-            background: #FFFFFF;
+            background: {t['input_bg']};
         }}
         """,
         "combo": f"""
@@ -274,7 +488,7 @@ def get_sidebar_qss(t: Dict[str, Any]) -> Dict[str, str]:
             padding: 8px 12px;
             border: 1px solid {t['border']};
             border-radius: 8px;
-            background: #FFFFFF;
+            background: {t['input_bg']};
             color: {t['text_primary']};
             font-size: 13px;
         }}
@@ -288,7 +502,7 @@ def get_sidebar_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QComboBox QAbstractItemView {{
             border: 1px solid {t['border']};
             border-radius: 6px;
-            background: #FFFFFF;
+            background: {t['input_bg']};
             color: {t['text_primary']};
             font-size: 13px;
             selection-background-color: {t['selection_bg']};
@@ -318,7 +532,21 @@ def get_sidebar_qss(t: Dict[str, Any]) -> Dict[str, str]:
         """,
         "cat_btn": f"""
         QPushButton {{
-            background: #FFFFFF;
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 8px;
+            font-size: 16px;
+            color: {t['primary']};
+        }}
+        QPushButton:hover {{
+            background: {t['selection_bg']};
+            border: 1px solid {t['primary']};
+        }}
+        QPushButton:pressed {{ background: {t['list_selected_bg']}; }}
+        """,
+        "theme_btn": f"""
+        QPushButton {{
+            background: {t['card_bg']};
             border: 1px solid {t['border']};
             border-radius: 8px;
             font-size: 16px;
@@ -371,7 +599,7 @@ def get_editor_qss(t: Dict[str, Any]) -> Dict[str, str]:
             padding: 5px 12px;
             border: 1px solid {t['border']};
             border-radius: 7px;
-            background: #FFFFFF;
+            background: {t['input_bg']};
             color: {t['text_primary']};
             font-size: 12px;
             min-width: 140px;
@@ -389,7 +617,7 @@ def get_editor_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QComboBox QAbstractItemView {{
             border: 1px solid {t['border']};
             border-radius: 6px;
-            background: #FFFFFF;
+            background: {t['input_bg']};
             color: {t['text_primary']};
             selection-background-color: {t['selection_bg']};
             selection-color: {t['selection_fg']};
@@ -433,7 +661,7 @@ def get_editor_qss(t: Dict[str, Any]) -> Dict[str, str]:
             background: transparent;
         }}
         QToolButton:hover {{
-            background: #FFFFFF;
+            background: {t['surface_bg']};
             border-color: {t['border_strong']};
             color: {t['primary_text']};
         }}
@@ -503,19 +731,5 @@ def get_mainwindow_qss(t: Dict[str, Any]) -> Dict[str, str]:
             padding: 2px 4px;
         }}
         QStatusBar::item {{ border: none; }}
-        """,
-        "theme_btn": f"""
-        QToolButton {{
-            padding: 5px 12px;
-            border: 1px solid {t['border']};
-            border-radius: 7px;
-            background: #FFFFFF;
-            font-size: 13px;
-            color: {t['primary_text']};
-        }}
-        QToolButton:hover {{
-            background: {t['selection_bg']};
-            border: 1px solid {t['primary']};
-        }}
         """,
     }

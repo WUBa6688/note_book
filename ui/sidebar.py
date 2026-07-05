@@ -125,21 +125,48 @@ class Sidebar(QWidget):
         self.category_combo.setStyleSheet(qss["combo"])
         self.new_note_btn.setStyleSheet(qss["new_btn"])
         self.manage_cat_btn.setStyleSheet(qss["cat_btn"])
-        self.theme_btn.setStyleSheet(qss["cat_btn"])
+        self.theme_btn.setStyleSheet(qss.get("theme_btn", qss["cat_btn"]))
         self.list_label.setStyleSheet(qss["list_label"])
         self.note_list.apply_theme(theme_name)
 
     def _show_theme_menu(self):
-        from PyQt6.QtGui import QAction
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QAction, QActionGroup
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
+        all_group = QActionGroup(menu)
+        all_group.setExclusive(True)
+
+        title_light = QAction("☀️ 浅色主题", self)
+        title_light.setEnabled(False)
+        font = title_light.font()
+        font.setBold(True)
+        title_light.setFont(font)
+        menu.addAction(title_light)
         for key in ("matcha", "lemon", "fog"):
             t = THEMES[key]
-            action = QAction(t["name"], self)
+            action = QAction("   " + t["name"], self)
             action.setCheckable(True)
             action.setChecked(key == self.current_theme)
             action.triggered.connect(lambda _=False, k=key: self.theme_change_requested.emit(k))
+            all_group.addAction(action)
             menu.addAction(action)
+
+        menu.addSeparator()
+
+        title_dark = QAction("🌙 深色模式", self)
+        title_dark.setEnabled(False)
+        title_dark.setFont(font)
+        menu.addAction(title_dark)
+        for key in ("matcha_dark", "lemon_dark", "fog_dark"):
+            t = THEMES[key]
+            action = QAction("   " + t["name"], self)
+            action.setCheckable(True)
+            action.setChecked(key == self.current_theme)
+            action.triggered.connect(lambda _=False, k=key: self.theme_change_requested.emit(k))
+            all_group.addAction(action)
+            menu.addAction(action)
+
         menu.exec(self.theme_btn.mapToGlobal(self.theme_btn.rect().bottomLeft()))
 
     def refresh_categories(self):
