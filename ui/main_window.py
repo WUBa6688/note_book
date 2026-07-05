@@ -1,31 +1,30 @@
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QSplitter, QStatusBar, QLabel,
-    QMessageBox
+    QMessageBox, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtGui import QKeySequence, QShortcut, QColor
 from typing import Optional
 from core.database import DatabaseManager, Note
 from .sidebar import Sidebar
 from .editor import MarkdownEditor
+from .theme import THEMES, DEFAULT_THEME, get_mainwindow_qss
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, db: DatabaseManager):
+    def __init__(self, db: DatabaseManager, theme_name: str = DEFAULT_THEME):
         super().__init__()
         self.db = db
+        self.current_theme = theme_name
         self.current_note_id: Optional[int] = None
         self._pending_save = False
         self._build_ui()
+        self.apply_theme_to_all(theme_name)
         self._build_shortcuts()
         QTimer.singleShot(100, self._load_first_note)
 
     def _build_ui(self):
-        self.setWindowTitle("Zhuibook - 现代 Markdown 笔记")
-        self.setStyleSheet("""
-            QMainWindow { background: #ffffff; }
-            QSplitter::handle { background: #e8e8e8; width: 1px; }
-        """)
+        self.setWindowTitle("Zhuibook · 现代 Markdown 笔记")
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
@@ -35,22 +34,29 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(1)
+        self.splitter = splitter
 
-        self.sidebar = Sidebar(self.db)
-        self.editor = MarkdownEditor()
+        self.sidebar = Sidebar(self.db, theme_name=self.current_theme)
+        self.editor = MarkdownEditor(theme_name=self.current_theme)
+
+        sidebar_shadow = QGraphicsDropShadowEffect()
+        sidebar_shadow.setBlurRadius(24)
+        sidebar_shadow.setXOffset(2)
+        sidebar_shadow.setYOffset(0)
+        sidebar_shadow.setColor(QColor(110, 100, 80, 28))
+        self.sidebar.setGraphicsEffect(sidebar_shadow)
 
         splitter.addWidget(self.sidebar)
         splitter.addWidget(self.editor)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([320, 880])
+        splitter.setSizes([340, 900])
 
         root.addWidget(splitter)
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
-        self.status_label = QLabel("💡 提示：Ctrl+N 新建 · Ctrl+S 保存 · 左侧源码 / 右侧实时预览")
-        self.status_label.setStyleSheet("color: #666; padding: 2px 8px;")
+        self.status_label = QLabel("💡 提示：Ctrl+N 新建 · Ctrl+S 保存 · 移动光标到语法标记附近可查看源码")
         self.status.addPermanentWidget(self.status_label)
 
         self.sidebar.note_selected.connect(self._on_note_selected)
@@ -58,9 +64,22 @@ class MainWindow(QMainWindow):
         self.sidebar.note_delete_requested.connect(self._on_note_deleted)
         self.sidebar.search_text_changed.connect(self._on_search)
         self.sidebar.category_changed.connect(lambda _: self._refresh_editor_categories())
+        self.sidebar.theme_change_requested.connect(self.apply_theme_to_all)
 
         self.editor.content_changed.connect(self._on_editor_content_changed)
         self.editor.category_changed.connect(self._on_editor_category_changed)
+
+    def apply_theme_to_all(self, theme_name: str):
+        self.current_theme = theme_name
+        t = THEMES[theme_name]
+        qss = get_mainwindow_qss(t)
+        self.setStyleSheet(qss["global"])
+        self.status.setStyleSheet(qss["status_bar"])
+        self.status_label.setStyleSheet(
+            f"color: {t['text_secondary']}; padding: 2px 8px; font-size: 12px;"
+        )
+        self.sidebar.apply_theme(theme_name)
+        self.editor.apply_theme(theme_name)
 
     def _build_shortcuts(self):
         new_sc = QShortcut(QKeySequence.StandardKey.New, self)

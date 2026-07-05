@@ -7,9 +7,10 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
-    QComboBox, QToolButton, QTextEdit, QSizePolicy
+    QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect
 )
 from core.database import Category
+from .theme import THEMES, DEFAULT_THEME, get_editor_qss
 
 
 def _fmt(**kwargs):
@@ -42,54 +43,61 @@ def _fmt(**kwargs):
     return f
 
 
-HIDDEN_LETTER_SPACING = -95  # 兼容保留，不再实际用于 marker 隐藏
+def _build_md_formats(t: dict) -> dict:
+    """Build markdown highlight QTextCharFormat from theme dict."""
+    marker_hidden = QTextCharFormat()
+    marker_hidden.setForeground(QColor(0, 0, 0, 0))
 
-
-_marker_hidden = None
-_marker_visible = None
-_marker_codeblock_fence = None
-_code_inline_content = None
-_codeblock_content = None
-_block_quote_fmt = None
-_ul_marker = None
-_ol_marker = None
-_link_text_fmt = None
-_link_url_hidden = None
-
-
-def _init_formats():
-    global _marker_hidden, _marker_visible, _marker_codeblock_fence
-    global _code_inline_content, _codeblock_content, _block_quote_fmt
-    global _ul_marker, _ol_marker, _link_text_fmt, _link_url_hidden
-
-    # marker 隐藏：仅前景完全透明（保留字符占位宽度，避免后续文字跳动/溢出左边距）
-    _marker_hidden = QTextCharFormat()
-    _marker_hidden.setForeground(QColor(0, 0, 0, 0))
-    # 保留默认字距与字号 → 文字位置固定，和 Typora 行为一致
-
-    _marker_visible = _fmt(foreground="#aab0b7", letter_spacing_pct=0)
-
-    _marker_codeblock_fence = _fmt(foreground="#6a737d", family="Consolas", size=11, letter_spacing_pct=0)
-
-    _code_inline_content = _fmt(
-        foreground="#d6336c", background="#f6f8fa", family="Consolas", size=13, letter_spacing_pct=0
+    marker_visible = _fmt(foreground=t["marker_visible"], letter_spacing_pct=0)
+    marker_codeblock_fence = _fmt(
+        foreground=t["codeblock_fence"], family="Consolas", size=11, letter_spacing_pct=0
     )
-
-    _codeblock_content = _fmt(
-        foreground="#24292e", background="#f6f8fa", family="Consolas", size=12, letter_spacing_pct=0
+    code_inline_content = _fmt(
+        foreground=t["inlinecode_fg"], background=t["inlinecode_bg"],
+        family="Consolas", size=13, letter_spacing_pct=0
     )
+    codeblock_content = _fmt(
+        foreground=t["codeblock_fg"], background=t["codeblock_bg"],
+        family="Consolas", size=12, letter_spacing_pct=0
+    )
+    block_quote_fmt = _fmt(
+        foreground=t["quote_fg"], background=t["quote_bg"], letter_spacing_pct=0
+    )
+    ul_marker = _fmt(foreground=t["list_marker"], bold=True, letter_spacing_pct=0)
+    ol_marker = _fmt(foreground=t["list_marker"], bold=True, letter_spacing_pct=0)
+    link_text_fmt = _fmt(foreground=t["link"], underline=True, letter_spacing_pct=0)
+    link_url_hidden = QTextCharFormat()
+    link_url_hidden.setForeground(QColor(0, 0, 0, 0))
 
-    _block_quote_fmt = _fmt(foreground="#37474f", background="#f0f7ff", letter_spacing_pct=0)
+    h1 = _fmt(foreground=t["h1"], bold=True, size=22, letter_spacing_pct=0)
+    h2 = _fmt(foreground=t["h2"], bold=True, size=18, letter_spacing_pct=0)
+    h3 = _fmt(foreground=t["h3"], bold=True, size=16, letter_spacing_pct=0)
+    h4 = _fmt(foreground=t["h4"], bold=True, size=14, letter_spacing_pct=0)
+    h5 = _fmt(foreground=t["h5"], bold=True, size=13, letter_spacing_pct=0)
+    h6 = _fmt(foreground=t["h6"], bold=True, size=12, letter_spacing_pct=0)
+    bold = _fmt(bold=True, letter_spacing_pct=0)
+    italic = _fmt(italic=True, letter_spacing_pct=0)
+    bold_italic = _fmt(bold=True, italic=True, letter_spacing_pct=0)
+    strike = _fmt(strike=True, letter_spacing_pct=0)
 
-    _ul_marker = _fmt(foreground="#1a73e8", bold=True, letter_spacing_pct=0)
-    _ol_marker = _fmt(foreground="#1a73e8", bold=True, letter_spacing_pct=0)
+    return {
+        "marker_hidden": marker_hidden,
+        "marker_visible": marker_visible,
+        "marker_codeblock_fence": marker_codeblock_fence,
+        "code_inline_content": code_inline_content,
+        "codeblock_content": codeblock_content,
+        "block_quote_fmt": block_quote_fmt,
+        "ul_marker": ul_marker,
+        "ol_marker": ol_marker,
+        "link_text_fmt": link_text_fmt,
+        "link_url_hidden": link_url_hidden,
+        "link_url_visible_fg": t["link_url"],
+        "h1": h1, "h2": h2, "h3": h3, "h4": h4, "h5": h5, "h6": h6,
+        "bold": bold, "italic": italic, "bold_italic": bold_italic, "strike": strike,
+    }
 
-    _link_text_fmt = _fmt(foreground="#1a73e8", underline=True, letter_spacing_pct=0)
 
-    # URL 部分隐藏：同样只设前景透明，保留占位宽度
-    _link_url_hidden = QTextCharFormat()
-    _link_url_hidden.setForeground(QColor(0, 0, 0, 0))
-
+HIDDEN_LETTER_SPACING = -95  # 兼容保留
 
 RE_INLINE_CODE = re.compile(r"`([^`\n]+?)`")
 RE_BOLD_ITALIC = re.compile(r"\*\*\*([^*]+?)\*\*\*")
@@ -100,24 +108,38 @@ RE_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
 
 class MarkdownMixedHighlighter(QSyntaxHighlighter):
-    def __init__(self, document, editor_ref):
+    def __init__(self, document, editor_ref, theme_name: str = DEFAULT_THEME):
+        import sys as _sys
         super().__init__(document)
         self.editor_ref = editor_ref
         self.active_block = -1
         self.active_col = -1
         self.block_meta = {}
-        _init_formats()
+        self.current_theme = theme_name
+        self._in_rehighlight = False
+        self.apply_theme(theme_name, force_rehighlight=False)
 
-        self._h1_title = _fmt(foreground="#1a73e8", bold=True, size=22, letter_spacing_pct=0)
-        self._h2_title = _fmt(foreground="#1a73e8", bold=True, size=18, letter_spacing_pct=0)
-        self._h3_title = _fmt(foreground="#1a73e8", bold=True, size=16, letter_spacing_pct=0)
-        self._h4_title = _fmt(foreground="#202124", bold=True, size=14, letter_spacing_pct=0)
-        self._h5_title = _fmt(foreground="#202124", bold=True, size=13, letter_spacing_pct=0)
-        self._h6_title = _fmt(foreground="#6a737d", bold=True, size=12, letter_spacing_pct=0)
-        self._bold_fmt = _fmt(bold=True, letter_spacing_pct=0)
-        self._italic_fmt = _fmt(italic=True, letter_spacing_pct=0)
-        self._bold_italic_fmt = _fmt(bold=True, italic=True, letter_spacing_pct=0)
-        self._strike_fmt = _fmt(strike=True, letter_spacing_pct=0)
+    def apply_theme(self, theme_name: str, force_rehighlight: bool = True):
+        self.current_theme = theme_name
+        t = THEMES[theme_name]
+        self._fmt = _build_md_formats(t)
+        self._h1_title = self._fmt["h1"]
+        self._h2_title = self._fmt["h2"]
+        self._h3_title = self._fmt["h3"]
+        self._h4_title = self._fmt["h4"]
+        self._h5_title = self._fmt["h5"]
+        self._h6_title = self._fmt["h6"]
+        self._bold_fmt = self._fmt["bold"]
+        self._italic_fmt = self._fmt["italic"]
+        self._bold_italic_fmt = self._fmt["bold_italic"]
+        self._strike_fmt = self._fmt["strike"]
+        if force_rehighlight:
+            if not self._in_rehighlight:
+                self._in_rehighlight = True
+                try:
+                    self.rehighlight()
+                finally:
+                    self._in_rehighlight = False
 
     def set_active_cursor(self, block_number: int, col: int):
         self.active_block = block_number
@@ -131,20 +153,20 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
 
     def _apply_marker(self, start: int, length: int, near: bool):
         if near:
-            self.setFormat(start, length, _marker_visible)
+            self.setFormat(start, length, self._fmt["marker_visible"])
         else:
-            self.setFormat(start, length, _marker_hidden)
+            self.setFormat(start, length, self._fmt["marker_hidden"])
 
     def highlightBlock(self, text: str):
         block_num = self.currentBlock().blockNumber()
         prev_state = self.previousBlockState()
 
         if prev_state == 1:
-            self.setFormat(0, len(text), _codeblock_content)
+            self.setFormat(0, len(text), self._fmt["codeblock_content"])
             if text.strip().startswith("```"):
-                self.setFormat(0, min(3, len(text)), _marker_codeblock_fence)
+                self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
                 if len(text.strip()) > 3:
-                    self.setFormat(3, len(text.strip()) - 3, _marker_codeblock_fence)
+                    self.setFormat(3, len(text.strip()) - 3, self._fmt["marker_codeblock_fence"])
                 self.setCurrentBlockState(0)
                 self.block_meta[block_num] = "code"
             else:
@@ -153,14 +175,14 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
             return
 
         if text.strip().startswith("```"):
-            self.setFormat(0, min(3, len(text)), _marker_codeblock_fence)
+            self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
             lang_part_len = max(0, len(text.strip()) - 3)
             if lang_part_len > 0:
-                self.setFormat(3, lang_part_len, _marker_codeblock_fence)
-            self.setFormat(0, len(text), _codeblock_content)
-            self.setFormat(0, min(3, len(text)), _marker_codeblock_fence)
+                self.setFormat(3, lang_part_len, self._fmt["marker_codeblock_fence"])
+            self.setFormat(0, len(text), self._fmt["codeblock_content"])
+            self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
             if lang_part_len > 0:
-                self.setFormat(3, lang_part_len, _marker_codeblock_fence)
+                self.setFormat(3, lang_part_len, self._fmt["marker_codeblock_fence"])
             self.setCurrentBlockState(1)
             self.block_meta[block_num] = "code"
             return
@@ -191,7 +213,7 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
             near = (leading <= self.active_col <= leading + 2
                     and block_num == self.active_block)
             self._apply_marker(leading, len(m.group(1)) + 1, near)
-            self.setFormat(leading, 1, _ul_marker)
+            self.setFormat(leading, 1, self._fmt["ul_marker"])
             self.block_meta[block_num] = "ul"
             return
 
@@ -201,13 +223,13 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
             near = (leading <= self.active_col <= leading + marker_len + 1
                     and block_num == self.active_block)
             self._apply_marker(leading, marker_len, near)
-            self.setFormat(leading, marker_len - 1, _ol_marker)
+            self.setFormat(leading, marker_len - 1, self._fmt["ol_marker"])
             self.block_meta[block_num] = "ol"
             return
 
         m = re.match(r"^(>)\s?(.*)", ltext)
         if m:
-            self.setFormat(0, len(text), _block_quote_fmt)
+            self.setFormat(0, len(text), self._fmt["block_quote_fmt"])
             near = (leading <= self.active_col <= leading + 2
                     and block_num == self.active_block)
             self._apply_marker(leading, 1, near)
@@ -229,12 +251,12 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
             return True
 
         for regex, content_fmt, left_len, right_len in [
-            (RE_LINK, _link_text_fmt, -1, -1),
+            (RE_LINK, self._fmt["link_text_fmt"], -1, -1),
             (RE_BOLD_ITALIC, self._bold_italic_fmt, 3, 3),
             (RE_BOLD, self._bold_fmt, 2, 2),
             (RE_STRIKE, self._strike_fmt, 2, 2),
             (RE_ITALIC, self._italic_fmt, 1, 1),
-            (RE_INLINE_CODE, _code_inline_content, 1, 1),
+            (RE_INLINE_CODE, self._fmt["code_inline_content"], 1, 1),
         ]:
             for match in regex.finditer(text):
                 s, e = match.start(), match.end()
@@ -257,12 +279,14 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                     url_len = rp - url_start
                     if url_len > 0:
                         if near:
-                            url_fmt = _fmt(foreground="#6a737d",
-                                           family="Consolas",
-                                           size=10, letter_spacing_pct=0)
+                            url_fmt = _fmt(
+                                foreground=self._fmt["link_url_visible_fg"],
+                                family="Consolas",
+                                size=10, letter_spacing_pct=0,
+                            )
                             self.setFormat(url_start, url_len, url_fmt)
                         else:
-                            self.setFormat(url_start, url_len, _link_url_hidden)
+                            self.setFormat(url_start, url_len, self._fmt["link_url_hidden"])
                     mark(s, e)
                 else:
                     near = self._near(s, e)
@@ -292,10 +316,17 @@ class MarkdownEditor(QWidget):
     category_changed = pyqtSignal(object)
     force_save_request = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, theme_name: str = DEFAULT_THEME):
+        import sys as _sys
         super().__init__(parent)
         self.current_category_id = None
+        self.current_theme = theme_name
+        self._toolbar_btns = []
+        self._toolbar_seps = []
+        self._constructing = True
         self._build_ui()
+        self.apply_theme(theme_name, initial=True)
+        self._constructing = False
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(800)
@@ -307,72 +338,61 @@ class MarkdownEditor(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        header = QFrame()
-        header.setStyleSheet("background:#ffffff; border-bottom:1px solid #e6e6e6;")
-        hdr_layout = QVBoxLayout(header)
-        hdr_layout.setContentsMargins(40, 24, 40, 16)
-        hdr_layout.setSpacing(10)
+        self.header = QFrame()
+        self.hdr_shadow = QGraphicsDropShadowEffect()
+        self.hdr_shadow.setBlurRadius(18)
+        self.hdr_shadow.setXOffset(0)
+        self.hdr_shadow.setYOffset(2)
+        self.hdr_shadow.setColor(QColor(110, 100, 80, 30))
+        self.header.setGraphicsEffect(self.hdr_shadow)
+
+        hdr_layout = QVBoxLayout(self.header)
+        hdr_layout.setContentsMargins(60, 28, 60, 18)
+        hdr_layout.setSpacing(14)
 
         self.title_edit = QLineEdit()
         self.title_edit.setPlaceholderText("未命名笔记")
         title_font = QFont()
-        title_font.setPointSize(22)
+        title_font.setPointSize(24)
         title_font.setBold(True)
         self.title_edit.setFont(title_font)
-        self.title_edit.setStyleSheet("""
-            QLineEdit {
-                border: none;
-                outline: none;
-                color: #202124;
-                padding: 4px 0;
-                background: transparent;
-            }
-        """)
         self.title_edit.textChanged.connect(self._on_any_changed)
         hdr_layout.addWidget(self.title_edit)
 
         meta_row = QHBoxLayout()
-        meta_row.setSpacing(14)
+        meta_row.setSpacing(12)
         self.save_status = QLabel("✓ 已保存")
-        self.save_status.setStyleSheet("color:#34a853; font-size:12px;")
+        self.dot = QLabel("·")
         self.word_count = QLabel("0 字")
-        self.word_count.setStyleSheet("color:#888; font-size:12px;")
-        dot = QLabel("·")
-        dot.setStyleSheet("color:#bbb; font-size:12px;")
-        cat_label = QLabel("分类:")
-        cat_label.setStyleSheet("color:#666; font-size:12px;")
+        self.cat_label = QLabel("分类")
         self.category_combo = QComboBox()
-        self.category_combo.setStyleSheet("""
-            QComboBox {
-                padding: 3px 10px; border: 1px solid #e0e0e0;
-                border-radius: 5px; background: #fff; font-size: 12px;
-            }
-        """)
         self.category_combo.currentIndexChanged.connect(self._on_category_changed_ui)
 
-        save_btn = QToolButton()
-        save_btn.setText("💾 保存")
-        save_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        save_btn.setShortcut(QKeySequence.StandardKey.Save)
-        save_btn.setStyleSheet(
-            "QToolButton{padding:3px 10px; border:1px solid #1a73e8;"
-            "border-radius:5px; font-size:12px; color:#1a73e8; background:#eaf2fe;}"
-        )
-        save_btn.clicked.connect(self._do_notify_save)
+        self.save_btn = QToolButton()
+        self.save_btn.setText("💾  保存")
+        self.save_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.save_btn.setShortcut(QKeySequence.StandardKey.Save)
+        self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_btn.clicked.connect(self._do_notify_save)
 
         meta_row.addWidget(self.save_status)
-        meta_row.addWidget(dot)
+        meta_row.addWidget(self.dot)
         meta_row.addWidget(self.word_count)
-        meta_row.addSpacing(12)
-        meta_row.addWidget(cat_label)
+        meta_row.addSpacing(16)
+        meta_row.addWidget(self.cat_label)
         meta_row.addWidget(self.category_combo, 1)
-        meta_row.addWidget(save_btn)
+        meta_row.addWidget(self.save_btn)
         hdr_layout.addLayout(meta_row)
 
+        self.toolbar_container = QFrame()
+        toolbar_layout_wrap = QHBoxLayout(self.toolbar_container)
+        toolbar_layout_wrap.setContentsMargins(6, 4, 6, 4)
+        toolbar_layout_wrap.setSpacing(0)
         toolbar = self._build_toolbar()
-        hdr_layout.addLayout(toolbar)
+        toolbar_layout_wrap.addLayout(toolbar)
+        hdr_layout.addWidget(self.toolbar_container)
 
-        root.addWidget(header)
+        root.addWidget(self.header)
 
         self.edit = _MixedTextEdit()
         self.edit.setPlaceholderText(
@@ -388,18 +408,6 @@ class MarkdownEditor(QWidget):
             "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "sans-serif"
         ])
         self.edit.setFont(base_font)
-        self.edit.setStyleSheet("""
-            QTextEdit {
-                background: #ffffff;
-                border: none;
-                selection-background-color: #d2e3fc;
-                color: #24292e;
-                font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
-                font-size: 13px;
-            }
-            QScrollBar:vertical { width: 10px; }
-            QScrollBar:horizontal { height: 10px; }
-        """)
         self.edit.setViewportMargins(80, 80, 80, 160)
         doc = self.edit.document()
         doc.setDocumentMargin(0)
@@ -412,7 +420,7 @@ class MarkdownEditor(QWidget):
         self.edit.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        hl = MarkdownMixedHighlighter(self.edit.document(), self.edit)
+        hl = MarkdownMixedHighlighter(self.edit.document(), self.edit, theme_name=self.current_theme)
         self.edit.set_highlighter(hl)
         self._highlighter = hl
         self._highlighter.block_meta = {}
@@ -429,6 +437,41 @@ class MarkdownEditor(QWidget):
 
         root.addWidget(self.edit, 1)
 
+    def apply_theme(self, theme_name: str, initial: bool = False):
+        import sys as _sys
+        self.current_theme = theme_name
+        t = THEMES[theme_name]
+        qss = get_editor_qss(t)
+        self.header.setStyleSheet(qss["header"])
+        self.title_edit.setStyleSheet(qss["title_edit"])
+        self.category_combo.setStyleSheet(qss["category_combo"])
+        self.save_btn.setStyleSheet(qss["save_btn"])
+        self.toolbar_container.setStyleSheet(qss["toolbar_container"])
+        self.edit.setStyleSheet(qss["textedit"])
+        self.save_status.setStyleSheet(
+            f"color:{t['save_color']}; font-size:12px; font-weight:500;"
+        )
+        self.word_count.setStyleSheet(
+            f"color:{t['text_secondary']}; font-size:12px;"
+        )
+        self.dot.setStyleSheet(
+            f"color:{t['text_tertiary']}; font-size:13px;"
+        )
+        self.cat_label.setStyleSheet(
+            f"color:{t['text_secondary']}; font-size:12px; font-weight:500;"
+        )
+        for sep in self._toolbar_seps:
+            sep.setStyleSheet(qss["toolbar_sep"])
+        for btn in self._toolbar_btns:
+            btn.setStyleSheet(qss["toolbar_btn"])
+        doc = self.edit.document()
+        empty_doc = (doc.blockCount() <= 1 and not (doc.toPlainText() or "").strip())
+        if initial or empty_doc:
+            # 构造期 / 空文档：跳过 rehighlight，避免 Qt 内部崩
+            self._highlighter.apply_theme(theme_name, force_rehighlight=False)
+        else:
+            self._highlighter.apply_theme(theme_name, force_rehighlight=True)
+
     def _install_shortcuts(self):
         b_sc = QShortcut(QKeySequence("Ctrl+B"), self.edit)
         b_sc.activated.connect(self._wrap_bold)
@@ -439,7 +482,7 @@ class MarkdownEditor(QWidget):
 
     def _build_toolbar(self):
         bar = QHBoxLayout()
-        bar.setSpacing(4)
+        bar.setSpacing(2)
         actions = [
             ("B", self._wrap_bold, "粗体 Ctrl+B", True),
             ("I", self._wrap_italic, "斜体 Ctrl+I", True),
@@ -463,7 +506,7 @@ class MarkdownEditor(QWidget):
             if func is None:
                 sep = QFrame()
                 sep.setFixedWidth(1)
-                sep.setStyleSheet("background:#eee; margin:4px 0;")
+                self._toolbar_seps.append(sep)
                 bar.addWidget(sep)
                 continue
             btn = QToolButton()
@@ -479,19 +522,8 @@ class MarkdownEditor(QWidget):
                     f.setFamily("Consolas")
                 btn.setFont(f)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet("""
-                QToolButton {
-                    padding: 5px 10px;
-                    border: 1px solid transparent;
-                    border-radius: 5px;
-                    font-size: 12px;
-                    color: #444;
-                    background: transparent;
-                }
-                QToolButton:hover { background: #eef3f9; border-color: #d8e2f0; }
-                QToolButton:pressed { background: #e0eaf6; }
-            """)
             btn.clicked.connect(func)
+            self._toolbar_btns.append(btn)
             bar.addWidget(btn)
         bar.addStretch(1)
         return bar
@@ -569,7 +601,13 @@ class MarkdownEditor(QWidget):
         block = cursor.block()
         col = cursor.position() - block.position()
         self._highlighter.set_active_cursor(block.blockNumber(), col)
-        self._highlighter.rehighlight()
+        hl = self._highlighter
+        if not getattr(hl, "_in_rehighlight", False):
+            hl._in_rehighlight = True
+            try:
+                hl.rehighlight()
+            finally:
+                hl._in_rehighlight = False
         self._apply_timer.start()
 
     def _update_word_count(self):

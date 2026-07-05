@@ -7,33 +7,20 @@ from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QAction, QIcon, QFont
 from typing import Optional, List
 from core.database import DatabaseManager, Note, Category
+from .theme import THEMES, DEFAULT_THEME, get_sidebar_qss, get_sidebar_note_list_qss
 
 
 class NoteListWidget(QListWidget):
     note_deleted = pyqtSignal(int)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, theme_name: str = DEFAULT_THEME):
         super().__init__(parent)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
-        self.setStyleSheet("""
-            QListWidget {
-                border: none;
-                background: #fafafa;
-                font-size: 13px;
-            }
-            QListWidget::item {
-                padding: 10px 14px;
-                border-bottom: 1px solid #eee;
-            }
-            QListWidget::item:selected {
-                background: #e8f0fe;
-                color: #1a73e8;
-            }
-            QListWidget::item:hover {
-                background: #f0f4f8;
-            }
-        """)
+        self.apply_theme(theme_name)
+
+    def apply_theme(self, theme_name: str):
+        self.setStyleSheet(get_sidebar_note_list_qss(THEMES[theme_name]))
 
     def _show_context_menu(self, pos):
         item = self.itemAt(pos)
@@ -54,61 +41,39 @@ class Sidebar(QWidget):
     note_delete_requested = pyqtSignal(int)
     search_text_changed = pyqtSignal(str)
     category_changed = pyqtSignal(int)
+    theme_change_requested = pyqtSignal(str)
 
-    def __init__(self, db: DatabaseManager, parent=None):
+    def __init__(self, db: DatabaseManager, parent=None, theme_name: str = DEFAULT_THEME):
         super().__init__(parent)
         self.db = db
         self.current_category_id = None
+        self.current_theme = theme_name
         self._build_ui()
+        self.apply_theme(theme_name)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
+        layout.setSpacing(0)
 
-        header = QFrame()
-        header.setStyleSheet("background: #ffffff; border-bottom: 1px solid #e0e0e0;")
-        header_layout = QVBoxLayout(header)
-        header_layout.setContentsMargins(16, 16, 16, 12)
-        header_layout.setSpacing(10)
+        self.header = QFrame()
+        header_layout = QVBoxLayout(self.header)
+        header_layout.setContentsMargins(20, 20, 20, 16)
+        header_layout.setSpacing(12)
 
-        title = QLabel("\U0001f4d2 Zhuibook")
+        self.title_label = QLabel("\U0001f4d2 Zhuibook")
         title_font = QFont()
-        title_font.setPointSize(16)
+        title_font.setPointSize(17)
         title_font.setBold(True)
-        title.setFont(title_font)
-        title.setStyleSheet("color: #1a73e8;")
-        header_layout.addWidget(title)
+        self.title_label.setFont(title_font)
+        header_layout.addWidget(self.title_label)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("\U0001f50d 搜索笔记...")
-        self.search_edit.setStyleSheet("""
-            QLineEdit {
-                padding: 8px 12px;
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                background: #f5f5f5;
-                font-size: 13px;
-            }
-            QLineEdit:focus {
-                border-color: #1a73e8;
-                background: #ffffff;
-            }
-        """)
+        self.search_edit.setPlaceholderText("\U0001f50d  搜索笔记标题或内容...")
         self.search_edit.textChanged.connect(self.search_text_changed.emit)
         header_layout.addWidget(self.search_edit)
 
         self.category_combo = QComboBox()
-        self.category_combo.setStyleSheet("""
-            QComboBox {
-                padding: 7px 10px;
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                background: #ffffff;
-                font-size: 13px;
-            }
-            QComboBox::drop-down { border: none; width: 24px; }
-        """)
         self.category_combo.currentIndexChanged.connect(self._on_category_changed)
         header_layout.addWidget(self.category_combo)
 
@@ -116,44 +81,31 @@ class Sidebar(QWidget):
         btn_row.setSpacing(8)
 
         self.new_note_btn = QPushButton("\u270f\ufe0f  新建笔记")
-        self.new_note_btn.setStyleSheet("""
-            QPushButton {
-                background: #1a73e8;
-                color: white;
-                border: none;
-                padding: 8px 14px;
-                border-radius: 6px;
-                font-size: 13px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background: #1557b0; }
-            QPushButton:pressed { background: #0d47a1; }
-        """)
+        self.new_note_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.new_note_btn.clicked.connect(self.new_note_requested.emit)
         btn_row.addWidget(self.new_note_btn)
 
         self.manage_cat_btn = QPushButton("\U0001f4c1")
-        self.manage_cat_btn.setFixedWidth(38)
-        self.manage_cat_btn.setStyleSheet("""
-            QPushButton {
-                background: #f0f0f0;
-                border: 1px solid #ddd;
-                border-radius: 6px;
-                font-size: 15px;
-            }
-            QPushButton:hover { background: #e8e8e8; }
-        """)
+        self.manage_cat_btn.setFixedWidth(40)
+        self.manage_cat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.manage_cat_btn.clicked.connect(self._manage_categories)
         btn_row.addWidget(self.manage_cat_btn)
 
+        self.theme_btn = QPushButton("\U0001f3a8")
+        self.theme_btn.setFixedWidth(40)
+        self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_btn.setToolTip("切换主题配色")
+        self.theme_btn.clicked.connect(self._show_theme_menu)
+        self._theme_menu = None
+        btn_row.addWidget(self.theme_btn)
+
         header_layout.addLayout(btn_row)
-        layout.addWidget(header)
+        layout.addWidget(self.header)
 
-        list_label = QLabel("    笔记列表")
-        list_label.setStyleSheet("padding: 4px 16px; color: #666; font-size: 12px; font-weight: bold;")
-        layout.addWidget(list_label)
+        self.list_label = QLabel("    笔记列表")
+        layout.addWidget(self.list_label)
 
-        self.note_list = NoteListWidget()
+        self.note_list = NoteListWidget(theme_name=self.current_theme)
         self.note_list.itemClicked.connect(self._on_note_clicked)
         self.note_list.note_deleted.connect(self._on_note_delete)
         layout.addWidget(self.note_list, 1)
@@ -162,6 +114,33 @@ class Sidebar(QWidget):
         self.setMaximumWidth(420)
         self.refresh_categories()
         self.refresh_notes()
+
+    def apply_theme(self, theme_name: str):
+        self.current_theme = theme_name
+        t = THEMES[theme_name]
+        qss = get_sidebar_qss(t)
+        self.header.setStyleSheet(qss["header"])
+        self.title_label.setStyleSheet(qss["title"])
+        self.search_edit.setStyleSheet(qss["search"])
+        self.category_combo.setStyleSheet(qss["combo"])
+        self.new_note_btn.setStyleSheet(qss["new_btn"])
+        self.manage_cat_btn.setStyleSheet(qss["cat_btn"])
+        self.theme_btn.setStyleSheet(qss["cat_btn"])
+        self.list_label.setStyleSheet(qss["list_label"])
+        self.note_list.apply_theme(theme_name)
+
+    def _show_theme_menu(self):
+        from PyQt6.QtGui import QAction
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        for key in ("matcha", "lemon", "fog"):
+            t = THEMES[key]
+            action = QAction(t["name"], self)
+            action.setCheckable(True)
+            action.setChecked(key == self.current_theme)
+            action.triggered.connect(lambda _=False, k=key: self.theme_change_requested.emit(k))
+            menu.addAction(action)
+        menu.exec(self.theme_btn.mapToGlobal(self.theme_btn.rect().bottomLeft()))
 
     def refresh_categories(self):
         self.category_combo.blockSignals(True)
