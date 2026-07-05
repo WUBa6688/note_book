@@ -1,17 +1,20 @@
+import os
 import re
+import random
+from datetime import datetime
 from typing import List, Optional
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData
 from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
-    QPixmap, QPainter, QIcon, QBrush, QPen
+    QPixmap, QPainter, QIcon, QBrush, QPen, QImage, QTextImageFormat
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
     QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect,
     QColorDialog, QDialog, QSpinBox, QAbstractSpinBox
 )
-from core.database import Category
+from core.database import Category, get_assets_dir, get_assets_root
 from .theme import THEMES, DEFAULT_THEME, get_editor_qss
 
 
@@ -314,6 +317,8 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
 
 
 class _MixedTextEdit(QTextEdit):
+    paste_image_requested = pyqtSignal(QImage)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._hl = None
@@ -323,6 +328,19 @@ class _MixedTextEdit(QTextEdit):
 
     def set_highlighter(self, hl: MarkdownMixedHighlighter):
         self._hl = hl
+
+    def canInsertFromMimeData(self, source: QMimeData) -> bool:
+        if source.hasImage():
+            return True
+        return super().canInsertFromMimeData(source)
+
+    def insertFromMimeData(self, source: QMimeData):
+        if source.hasImage():
+            img = source.imageData()
+            if isinstance(img, QImage) and not img.isNull():
+                self.paste_image_requested.emit(img)
+                return
+        super().insertFromMimeData(source)
 
 
 class MarkdownEditor(QWidget):
@@ -334,6 +352,7 @@ class MarkdownEditor(QWidget):
         import sys as _sys
         super().__init__(parent)
         self.current_category_id = None
+        self.current_note_id = None
         self.current_theme = theme_name
         self._toolbar_btns = []
         self._toolbar_seps = []
@@ -347,6 +366,7 @@ class MarkdownEditor(QWidget):
         self.font_size_combo.currentIndexChanged.connect(self._apply_font_size_to_selection)
         self.text_color_btn.clicked.connect(self._choose_text_color)
         self.highlight_color_btn.clicked.connect(self._choose_highlight_color)
+        self.edit.paste_image_requested.connect(self._handle_paste_image)
 
         self.apply_theme(theme_name, initial=True)
         self._constructing = False
@@ -756,6 +776,108 @@ class MarkdownEditor(QWidget):
             self.edit.mergeCurrentCharFormat(fmt)
         self._on_any_changed()
 
+    def _resolve_image_path(self, path: str) -> str:
+        if not path:
+            return ""
+        p = path.strip()
+        if os.path.isabs(p):
+            return p
+        if p.startswith("assets/") or p.startswith("./assets/"):
+            if p.startswith("./"):
+                p = p[2:]
+            return os.path.join(get_assets_root(), os.path.relpath(p, "assets"))
+        return p
+
+    def _render_images_in_doc(self):
+        doc = self.edit.document()
+        md_img_re = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+        cursor = QTextCursor(doc)
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        while True:
+            block = cursor.block()
+            if not block.isValid():
+                break
+            text = block.text()
+            matches = list(md_img_re.finditer(text))
+            offset = 0
+            for m in matches:
+                alt = m.group(1) or "image"
+                raw_path = m.group(2)
+                abs_path = self._resolve_image_path(raw_path)
+                if not os.path.exists(abs_path):
+                    offset += 0
+                    continue
+                block_start = block.position()
+                start_pos = block_start + m.start() - offset
+                end_pos = block_start + m.end() - offset
+                sel = QTextCursor(doc)
+                sel.setPosition(start_pos)
+                sel.setPosition(end_pos, QTextCursor.MoveMode.KeepAnchor)
+                img_fmt = QTextImageFormat()
+                img_fmt.setName(abs_path)
+                img_fmt.setProperty(1001, raw_path)
+                img_fmt.setProperty(1002, alt)
+                max_w = self.edit.viewport().width() - 80
+                img = QImage(abs_path)
+                if not img.isNull() and img.width() > max_w:
+                    ratio = max_w / float(img.width())
+                    img_fmt.setWidth(img.width() * ratio)
+                    img_fmt.setHeight(img.height() * ratio)
+                sel.insertImage(img_fmt)
+                offset += m.end() - m.start() + 1
+            if not cursor.movePosition(QTextCursor.MoveOperation.NextBlock):
+                break
+
+    def _extract_markdown_from_doc(self) -> str:
+        doc = self.edit.document()
+        out_lines = []
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            line_parts = []
+            while not it.atEnd():
+                frag = it.fragment()
+                if frag.isValid():
+                    fmt = frag.charFormat()
+                    if fmt.isImageFormat():
+                        raw_path = fmt.property(1001)
+                        alt = fmt.property(1002) or ""
+                        if isinstance(raw_path, str) and raw_path:
+                            line_parts.append(f"![{alt}]({raw_path})")
+                        else:
+                            img_name = fmt.toImageFormat().name() or ""
+                            line_parts.append(f"[]({img_name})")
+                    else:
+                        line_parts.append(frag.text())
+                it += 1
+            line_text = "".join(line_parts)
+            if not line_text:
+                out_lines.append("")
+            else:
+                out_lines.append(line_text)
+            block = block.next()
+        return "\n".join(out_lines).rstrip()
+
+    def _handle_paste_image(self, img: QImage):
+        if img.isNull():
+            return
+        assets_dir = get_assets_dir(self.current_note_id)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        rand4 = random.randint(1000, 9999)
+        filename = f"paste_{ts}_{rand4}.png"
+        full_path = os.path.join(assets_dir, filename)
+        img.save(full_path, "PNG")
+        if self.current_note_id and self.current_note_id > 0:
+            rel_path = f"./assets/note_{self.current_note_id}_images/{filename}"
+        else:
+            rel_path = f"./assets/_unsaved_images/{filename}"
+        alt_name = f"粘贴-{ts}"
+        cursor = self.edit.textCursor()
+        cursor.insertText(f"\n![{alt_name}]({rel_path})\n")
+        self.edit.setTextCursor(cursor)
+        self._render_images_in_doc()
+        self._on_any_changed()
+
     def _on_src_changed(self):
         self._on_any_changed()
         self._apply_timer.start()
@@ -855,7 +977,7 @@ class MarkdownEditor(QWidget):
         self._dirty = False
         self._set_save_status("saved")
         title = self.title_edit.text()
-        content = self.edit.toPlainText()
+        content = self._extract_markdown_from_doc()
         cat_id = self._current_category_id()
         self.content_changed.emit(title, content, cat_id)
 
@@ -869,7 +991,7 @@ class MarkdownEditor(QWidget):
         self._on_any_changed()
         self.category_changed.emit(self._current_category_id())
 
-    def set_note(self, title: str, content: str, category_id, categories: List[Category]):
+    def set_note(self, note_id, title: str, content: str, category_id, categories: List[Category]):
         self.category_combo.blockSignals(True)
         self.category_combo.clear()
         self.category_combo.addItem("未分类", None)
@@ -888,6 +1010,7 @@ class MarkdownEditor(QWidget):
                 self.category_combo.setCurrentIndex(0)
         self.category_combo.blockSignals(False)
         self.current_category_id = category_id
+        self.current_note_id = note_id
 
         self.title_edit.blockSignals(True)
         self.edit.blockSignals(True)
@@ -897,6 +1020,7 @@ class MarkdownEditor(QWidget):
         self._highlighter.set_active_cursor(-1, -1)
         self._highlighter.rehighlight()
         self._apply_block_formats()
+        self._render_images_in_doc()
         self.title_edit.blockSignals(False)
         self.edit.blockSignals(False)
 

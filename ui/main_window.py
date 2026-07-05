@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
     def _do_open_note(self, note: Note):
         self.current_note_id = note.id
         categories = self.db.get_all_categories()
-        self.editor.set_note(note.title, note.content, note.category_id, categories)
+        self.editor.set_note(note.id, note.title, note.content, note.category_id, categories)
         self._pending_save = False
         self._update_status(f"📝 打开笔记: {note.title or '无标题'}")
 
@@ -141,7 +141,7 @@ class MainWindow(QMainWindow):
         note = self.db.create_note("未命名笔记", "", category_id=category_id)
         self.current_note_id = note.id
         categories = self.db.get_all_categories()
-        self.editor.set_note(note.title, note.content, note.category_id, categories)
+        self.editor.set_note(note.id, note.title, note.content, note.category_id, categories)
         self._pending_save = True
         self.db.update_note(self.current_note_id, title=note.title, content=note.content, category_id=category_id)
         self._pending_save = False
@@ -151,7 +151,7 @@ class MainWindow(QMainWindow):
     def _on_note_deleted(self, note_id: int):
         if note_id == self.current_note_id:
             self.current_note_id = None
-            self.editor.set_note("", "", None, self.db.get_all_categories())
+            self.editor.set_note(None, "", "", None, self.db.get_all_categories())
             self._pending_save = False
         notes = self.db.get_all_notes()
         if self.current_note_id is None and notes:

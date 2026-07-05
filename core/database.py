@@ -23,6 +23,27 @@ class Note:
     updated_at: str
 
 
+def _app_data_root() -> str:
+    p = os.path.join(os.path.expanduser("~"), ".zhuibook")
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+def get_assets_root() -> str:
+    p = os.path.join(_app_data_root(), "assets")
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+def get_assets_dir(note_id: int) -> str:
+    if note_id is None or note_id <= 0:
+        p = os.path.join(get_assets_root(), "_unsaved_images")
+    else:
+        p = os.path.join(get_assets_root(), f"note_{int(note_id)}_images")
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
 class DatabaseManager:
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
