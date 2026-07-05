@@ -45,8 +45,21 @@ def _fmt(**kwargs):
 
 def _build_md_formats(t: dict) -> dict:
     """Build markdown highlight QTextCharFormat from theme dict."""
+    # 零风险几乎零占宽：超小字号 0.5pt + 前景完全透明 → marker 几乎不占宽度，
+    # 且绝不修改 letterSpacing（不管是 Percentage 还是 Absolute，会触发 Qt
+    # 的负宽度或 clip 问题，彻底规避。小字号由 MinimumHeight 行高托底，
+    # 不会塌缩行高。
+    mh_font = QFont()
+    mh_font.setPointSizeF(0.5)
     marker_hidden = QTextCharFormat()
     marker_hidden.setForeground(QColor(0, 0, 0, 0))
+    marker_hidden.setFont(mh_font)
+
+    lu_font = QFont()
+    lu_font.setPointSizeF(0.5)
+    link_url_hidden = QTextCharFormat()
+    link_url_hidden.setForeground(QColor(0, 0, 0, 0))
+    link_url_hidden.setFont(lu_font)
 
     marker_visible = _fmt(foreground=t["marker_visible"], letter_spacing_pct=0)
     marker_codeblock_fence = _fmt(
@@ -66,8 +79,6 @@ def _build_md_formats(t: dict) -> dict:
     ul_marker = _fmt(foreground=t["list_marker"], bold=True, letter_spacing_pct=0)
     ol_marker = _fmt(foreground=t["list_marker"], bold=True, letter_spacing_pct=0)
     link_text_fmt = _fmt(foreground=t["link"], underline=True, letter_spacing_pct=0)
-    link_url_hidden = QTextCharFormat()
-    link_url_hidden.setForeground(QColor(0, 0, 0, 0))
 
     h1 = _fmt(foreground=t["h1"], bold=True, size=22, letter_spacing_pct=0)
     h2 = _fmt(foreground=t["h2"], bold=True, size=18, letter_spacing_pct=0)
@@ -95,9 +106,6 @@ def _build_md_formats(t: dict) -> dict:
         "h1": h1, "h2": h2, "h3": h3, "h4": h4, "h5": h5, "h6": h6,
         "bold": bold, "italic": italic, "bold_italic": bold_italic, "strike": strike,
     }
-
-
-HIDDEN_LETTER_SPACING = -95  # 兼容保留
 
 RE_INLINE_CODE = re.compile(r"`([^`\n]+?)`")
 RE_BOLD_ITALIC = re.compile(r"\*\*\*([^*]+?)\*\*\*")
@@ -629,12 +637,12 @@ class MarkdownEditor(QWidget):
                     "h3":    (32, MIN, 14, 10),
                     "h4":    (28, MIN, 12, 8),
                     "h5":    (24, MIN, 10, 6),
-                    "h6":    (22, MIN, 8, 4),
-                    "p":     (26, MIN, 5, 5),
-                    "ul":    (25, MIN, 4, 3),
-                    "ol":    (25, MIN, 4, 3),
-                    "quote": (26, MIN, 6, 6),
-                    "code":  (24, MIN, 2, 2),
+                    "h6":    (22, MIN, 8,  4),
+                    "p":     (26, MIN, 5,  5),
+                    "ul":    (25, MIN, 4,  3),
+                    "ol":    (25, MIN, 4,  3),
+                    "quote": (26, MIN, 6,  6),
+                    "code":  (24, MIN, 2,  2),
                 }
                 cached = {}
                 for t, (lh, lht, tm, bm) in presets.items():

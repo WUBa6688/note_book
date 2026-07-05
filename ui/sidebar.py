@@ -192,6 +192,15 @@ class Sidebar(QWidget):
         note_id = item.data(Qt.ItemDataRole.UserRole)
         self.note_selected.emit(note_id)
 
+    def select_note_by_id(self, note_id: int):
+        for i in range(self.note_list.count()):
+            it = self.note_list.item(i)
+            if int(it.data(Qt.ItemDataRole.UserRole) or 0) == int(note_id):
+                self.note_list.setCurrentItem(it)
+                self._on_note_clicked(it)
+                return True
+        return False
+
     def _on_note_delete(self, note_id: int):
         reply = QMessageBox.question(
             self, "删除笔记", "确定要删除这篇笔记吗？此操作无法撤销。",
