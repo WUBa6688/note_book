@@ -350,12 +350,6 @@ class MarkdownEditor(QWidget):
         """)
         self.category_combo.currentIndexChanged.connect(self._on_category_changed_ui)
 
-        self.mode_label = QLabel("✨ 混合所见即所得")
-        self.mode_label.setStyleSheet(
-            "color:#1a73e8; font-size:12px; background:#eaf2fe;"
-            "padding:3px 8px; border-radius:4px;"
-        )
-
         save_btn = QToolButton()
         save_btn.setText("💾 保存")
         save_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -372,7 +366,6 @@ class MarkdownEditor(QWidget):
         meta_row.addSpacing(12)
         meta_row.addWidget(cat_label)
         meta_row.addWidget(self.category_combo, 1)
-        meta_row.addWidget(self.mode_label)
         meta_row.addWidget(save_btn)
         hdr_layout.addLayout(meta_row)
 
