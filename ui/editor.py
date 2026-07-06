@@ -366,7 +366,7 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
         else:
             default_fmt = self._fmt["codeblock_content"]
         try:
-            self.setFormat(0, len(text), default_fmt)
+            self._preserving_set_format(0, len(text), default_fmt)
         except Exception:
             pass
         if (not _HAS_PYGMENTS) or lx is None:
@@ -383,7 +383,7 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                 if ln > 0:
                     try:
                         fmt = self._format_for_ttype(ttype, base_bg)
-                        self.setFormat(idx, ln, fmt)
+                        self._preserving_set_format(idx, ln, fmt)
                     except Exception:
                         pass
                 idx += ln
@@ -403,6 +403,52 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
         first_word = re.split(r"\s|,|;|:", tail, 1)[0]
         return first_word.lower().strip()
 
+    def _preserving_set_format(self, start: int, length: int, fmt: QTextCharFormat):
+        if length <= 0 or start < 0:
+            return
+        try:
+            doc = self.document()
+            if doc is None:
+                QSyntaxHighlighter.setFormat(self, start, length, fmt)
+                return
+            merged = QTextCharFormat(fmt)
+            cursor = QTextCursor(doc)
+            pos = max(0, min(start, doc.characterCount() - 1))
+            cursor.setPosition(pos)
+            base = cursor.charFormat()
+            # 保留用户自定义的字号
+            try:
+                if base.hasProperty(QTextFormat.Property.FontPointSize):
+                    ps = base.fontPointSize()
+                    if isinstance(ps, (int, float)) and ps > 0:
+                        merged.setFontPointSize(float(ps))
+            except Exception:
+                pass
+            # 保留用户自定义的前景色（文字颜色）
+            try:
+                if base.hasProperty(QTextFormat.Property.ForegroundBrush):
+                    fg = base.foreground()
+                    c = fg.color()
+                    if c.isValid():
+                        merged.setForeground(QBrush(c))
+            except Exception:
+                pass
+            # 保留用户自定义的背景色（🖍 高亮色）
+            try:
+                if base.hasProperty(QTextFormat.Property.BackgroundBrush):
+                    bg = base.background()
+                    c = bg.color()
+                    if c.isValid() and (c.alpha() > 0 or c != Qt.GlobalColor.transparent):
+                        merged.setBackground(QBrush(c))
+            except Exception:
+                pass
+            QSyntaxHighlighter.setFormat(self, start, length, merged)
+        except Exception:
+            try:
+                QSyntaxHighlighter.setFormat(self, start, length, fmt)
+            except Exception:
+                pass
+
     def set_active_cursor(self, block_number: int, col: int):
         self.active_block = block_number
         self.active_col = col
@@ -415,9 +461,9 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
 
     def _apply_marker(self, start: int, length: int, near: bool):
         if near:
-            self.setFormat(start, length, self._fmt["marker_visible"])
+            self._preserving_set_format(start, length, self._fmt["marker_visible"])
         else:
-            self.setFormat(start, length, self._fmt["marker_hidden"])
+            self._preserving_set_format(start, length, self._fmt["marker_hidden"])
 
     def highlightBlock(self, text: str):
         block_num = self.currentBlock().blockNumber()
@@ -427,13 +473,13 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
 
         if prev_state == 1:
             if text.strip().startswith("```"):
-                self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
+                self._preserving_set_format(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
                 if len(text.strip()) > 3:
-                    self.setFormat(3, len(text.strip()) - 3, self._fmt["marker_codeblock_fence"])
-                self.setFormat(0, len(text), self._fmt["codeblock_content"])
-                self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
+                    self._preserving_set_format(3, len(text.strip()) - 3, self._fmt["marker_codeblock_fence"])
+                self._preserving_set_format(0, len(text), self._fmt["codeblock_content"])
+                self._preserving_set_format(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
                 if len(text.strip()) > 3:
-                    self.setFormat(3, len(text.strip()) - 3, self._fmt["marker_codeblock_fence"])
+                    self._preserving_set_format(3, len(text.strip()) - 3, self._fmt["marker_codeblock_fence"])
                 self.setCurrentBlockState(0)
                 self.block_meta[block_num] = "code_fence_end"
                 for start_b, info in list(self.code_block_info.items()):
@@ -453,14 +499,14 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                 return
 
         if text.strip().startswith("```"):
-            self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
+            self._preserving_set_format(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
             lang_part_len = max(0, len(text.strip()) - 3)
             if lang_part_len > 0:
-                self.setFormat(3, lang_part_len, self._fmt["marker_codeblock_fence"])
-            self.setFormat(0, len(text), self._fmt["codeblock_content"])
-            self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
+                self._preserving_set_format(3, lang_part_len, self._fmt["marker_codeblock_fence"])
+            self._preserving_set_format(0, len(text), self._fmt["codeblock_content"])
+            self._preserving_set_format(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
             if lang_part_len > 0:
-                self.setFormat(3, lang_part_len, self._fmt["marker_codeblock_fence"])
+                self._preserving_set_format(3, lang_part_len, self._fmt["marker_codeblock_fence"])
             self.setCurrentBlockState(1)
             lang = self._parse_fence_lang(text) or ""
             self.code_block_info[block_num] = {"start": block_num, "end": None, "lang": lang, "pending": True}
@@ -484,7 +530,7 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
             if title_len > 0:
                 fmt = [self._h1_title, self._h2_title, self._h3_title,
                        self._h4_title, self._h5_title, self._h6_title][level - 1]
-                self.setFormat(title_start, title_len, fmt)
+                self._preserving_set_format(title_start, title_len, fmt)
             self.block_meta[block_num] = f"h{level}"
             return
 
@@ -493,7 +539,7 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
             near = (leading <= self.active_col <= leading + 2
                     and block_num == self.active_block)
             self._apply_marker(leading, len(m.group(1)) + 1, near)
-            self.setFormat(leading, 1, self._fmt["ul_marker"])
+            self._preserving_set_format(leading, 1, self._fmt["ul_marker"])
             self.block_meta[block_num] = "ul"
             return
 
@@ -503,13 +549,13 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
             near = (leading <= self.active_col <= leading + marker_len + 1
                     and block_num == self.active_block)
             self._apply_marker(leading, marker_len, near)
-            self.setFormat(leading, marker_len - 1, self._fmt["ol_marker"])
+            self._preserving_set_format(leading, marker_len - 1, self._fmt["ol_marker"])
             self.block_meta[block_num] = "ol"
             return
 
         m = re.match(r"^(>)\s?(.*)", ltext)
         if m:
-            self.setFormat(0, len(text), self._fmt["block_quote_fmt"])
+            self._preserving_set_format(0, len(text), self._fmt["block_quote_fmt"])
             near = (leading <= self.active_col <= leading + 2
                     and block_num == self.active_block)
             self._apply_marker(leading, 1, near)
@@ -554,7 +600,7 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                     self._apply_marker(rb, 1, near)
                     self._apply_marker(lp, 1, near)
                     self._apply_marker(rp, 1, near)
-                    self.setFormat(s + 1, len(text_group), content_fmt)
+                    self._preserving_set_format(s + 1, len(text_group), content_fmt)
                     url_start = lp + 1
                     url_len = rp - url_start
                     if url_len > 0:
@@ -564,9 +610,9 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                                 family="Consolas",
                                 size=10, letter_spacing_pct=0,
                             )
-                            self.setFormat(url_start, url_len, url_fmt)
+                            self._preserving_set_format(url_start, url_len, url_fmt)
                         else:
-                            self.setFormat(url_start, url_len, self._fmt["link_url_hidden"])
+                            self._preserving_set_format(url_start, url_len, self._fmt["link_url_hidden"])
                     mark(s, e)
                 else:
                     near = self._near(s, e)
@@ -575,7 +621,7 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                     content_start = s + left_len
                     content_len = (e - right_len) - content_start
                     if content_len > 0:
-                        self.setFormat(content_start, content_len, content_fmt)
+                        self._preserving_set_format(content_start, content_len, content_fmt)
                     mark(s, e)
 
 
@@ -1303,14 +1349,23 @@ class MarkdownEditor(QWidget):
         pt = self.font_size_combo.itemData(index)
         if pt is None:
             return
-        cursor = self._get_cursor()
-        fmt = QTextCharFormat()
-        fmt.setFontPointSize(float(pt))
-        if cursor.hasSelection():
-            cursor.mergeCharFormat(fmt)
-            self._set_cursor(cursor)
+        try:
+            pt_f = float(pt)
+        except Exception:
+            return
+        if pt_f <= 0:
+            return
+        cursor = self.edit.textCursor()
+        if not cursor.hasSelection():
+            char_fmt = cursor.charFormat()
+            char_fmt.setFontPointSize(pt_f)
+            cursor.setCharFormat(char_fmt)
+            self.edit.setTextCursor(cursor)
         else:
-            self.edit.mergeCurrentCharFormat(fmt)
+            fmt = QTextCharFormat()
+            fmt.setFontPointSize(pt_f)
+            cursor.mergeCharFormat(fmt)
+            self.edit.setTextCursor(cursor)
         self._on_any_changed()
 
     def _choose_text_color(self):
@@ -1321,14 +1376,17 @@ class MarkdownEditor(QWidget):
             return
         self._last_text_color = color
         self._update_color_button_icon(self.text_color_btn, color)
-        cursor = self._get_cursor()
+        cursor = self.edit.textCursor()
         fmt = QTextCharFormat()
-        fmt.setForeground(color)
+        fmt.setForeground(QBrush(color))
         if cursor.hasSelection():
             cursor.mergeCharFormat(fmt)
-            self._set_cursor(cursor)
+            self.edit.setTextCursor(cursor)
         else:
-            self.edit.mergeCurrentCharFormat(fmt)
+            cur_fmt = cursor.charFormat()
+            cur_fmt.setForeground(QBrush(color))
+            cursor.setCharFormat(cur_fmt)
+            self.edit.setTextCursor(cursor)
         self._on_any_changed()
 
     def _choose_highlight_color(self):
@@ -1339,14 +1397,17 @@ class MarkdownEditor(QWidget):
             return
         self._last_highlight_color = color
         self._update_color_button_icon(self.highlight_color_btn, color)
-        cursor = self._get_cursor()
+        cursor = self.edit.textCursor()
         fmt = QTextCharFormat()
-        fmt.setBackground(color)
+        fmt.setBackground(QBrush(color))
         if cursor.hasSelection():
             cursor.mergeCharFormat(fmt)
-            self._set_cursor(cursor)
+            self.edit.setTextCursor(cursor)
         else:
-            self.edit.mergeCurrentCharFormat(fmt)
+            cur_fmt = cursor.charFormat()
+            cur_fmt.setBackground(QBrush(color))
+            cursor.setCharFormat(cur_fmt)
+            self.edit.setTextCursor(cursor)
         self._on_any_changed()
 
     def _resolve_image_path(self, path: str) -> str:
