@@ -1,14 +1,16 @@
 import os
 import re
+import sys
+import uuid
 import random
 from datetime import datetime
-from typing import List, Optional
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData
+from typing import List, Optional, Dict, Any, Tuple
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect
 from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
     QPixmap, QPainter, QIcon, QBrush, QPen, QImage, QTextImageFormat, QPalette,
-    QAction
+    QAction, QPainterPath, QFontMetrics
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
@@ -16,6 +18,14 @@ from PyQt6.QtWidgets import (
     QColorDialog, QDialog, QSpinBox, QAbstractSpinBox, QMenu,
     QFileDialog, QSlider, QDialogButtonBox
 )
+try:
+    from pygments import lexers, styles, token as pyg_token
+    from pygments.lexers import guess_lexer
+    from pygments.styles import get_style_by_name
+    from pygments.util import ClassNotFound
+    _HAS_PYGMENTS = True
+except Exception:
+    _HAS_PYGMENTS = False
 from core.database import Category, get_assets_dir, get_assets_root
 from core.settings import load_settings, save_settings
 from .theme import THEMES, DEFAULT_THEME, get_editor_qss
@@ -127,6 +137,23 @@ RE_STRIKE = re.compile(r"~~([^~]+?)~~")
 RE_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
 
+_PYGMENTS_LIGHT_STYLES = ("default", "friendly", "colorful")
+_PYGMENTS_DARK_STYLES = ("monokai", "inkpot", "paraiso-dark")
+
+def _pygments_style_for_theme(t: dict) -> str:
+    if t.get("group") == "dark":
+        return _PYGMENTS_DARK_STYLES[0]
+    return _PYGMENTS_LIGHT_STYLES[0]
+
+def _hex_to_qcolor(s: str, default: str) -> QColor:
+    try:
+        if not s:
+            return QColor(default)
+        return QColor(str(s))
+    except Exception:
+        return QColor(default)
+
+
 class MarkdownMixedHighlighter(QSyntaxHighlighter):
     def __init__(self, document, editor_ref, theme_name: str = DEFAULT_THEME):
         import sys as _sys
@@ -134,9 +161,13 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
         self.editor_ref = editor_ref
         self.active_block = -1
         self.active_col = -1
-        self.block_meta = {}
+        self.block_meta: Dict[int, str] = {}
+        self.code_block_info: Dict[int, Dict[str, Any]] = {}
         self.current_theme = theme_name
         self._in_rehighlight = False
+        self._lexer_cache: Dict[str, Any] = {}
+        self._pygments_style_cache: Dict[str, Any] = {}
+        self._token_format_cache: Dict[str, Any] = {}
         self.apply_theme(theme_name, force_rehighlight=False)
 
     def apply_theme(self, theme_name: str, force_rehighlight: bool = True):
@@ -153,6 +184,9 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
         self._italic_fmt = self._fmt["italic"]
         self._bold_italic_fmt = self._fmt["bold_italic"]
         self._strike_fmt = self._fmt["strike"]
+        self._lexer_cache.clear()
+        self._pygments_style_cache.clear()
+        self._token_format_cache.clear()
         if force_rehighlight:
             if not self._in_rehighlight:
                 self._in_rehighlight = True
@@ -160,6 +194,117 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                     self.rehighlight()
                 finally:
                     self._in_rehighlight = False
+
+    def _current_theme_data(self) -> dict:
+        return THEMES[self.current_theme]
+
+    def _get_pygments_style(self):
+        t = self._current_theme_data()
+        name = _pygments_style_for_theme(t)
+        if name in self._pygments_style_cache:
+            return self._pygments_style_cache[name]
+        if not _HAS_PYGMENTS:
+            self._pygments_style_cache[name] = None
+            return None
+        try:
+            style = get_style_by_name(name)
+        except Exception:
+            style = None
+        self._pygments_style_cache[name] = style
+        return style
+
+    def _get_lexer(self, lang: str):
+        if not _HAS_PYGMENTS or not lang:
+            return None
+        lang_key = lang.lower().strip()
+        if lang_key in self._lexer_cache:
+            return self._lexer_cache[lang_key]
+        try:
+            lx = lexers.get_lexer_by_name(lang_key, stripnl=False, ensurenl=False)
+        except ClassNotFound:
+            lx = None
+        except Exception:
+            lx = None
+        self._lexer_cache[lang_key] = lx
+        return lx
+
+    def _format_for_ttype(self, ttype, base_bg: str) -> QTextCharFormat:
+        style = self._get_pygments_style()
+        bg_str = base_bg
+        fg_str = None
+        bold = False
+        italic = False
+        underline = False
+        if style is not None:
+            try:
+                entry = style.style_for_token(ttype) or {}
+                if entry.get("color"):
+                    fg_str = "#" + entry["color"]
+                if entry.get("bgcolor"):
+                    bg_str = "#" + entry["bgcolor"]
+                if entry.get("bold"):
+                    bold = True
+                if entry.get("italic"):
+                    italic = True
+                if entry.get("underline"):
+                    underline = True
+            except Exception:
+                pass
+        key_parts = [fg_str or "", bg_str, str(int(bold)), str(int(italic)), str(int(underline))]
+        key = "|".join(key_parts)
+        if key in self._token_format_cache:
+            return self._token_format_cache[key]
+        kwargs: Dict[str, Any] = {"family": "Consolas", "size": 12, "letter_spacing_pct": 0, "background": bg_str}
+        if fg_str:
+            kwargs["foreground"] = fg_str
+        if bold:
+            kwargs["bold"] = True
+        if italic:
+            kwargs["italic"] = True
+        if underline:
+            kwargs["underline"] = True
+        fmt = _fmt(**kwargs)
+        self._token_format_cache[key] = fmt
+        return fmt
+
+    def _highlight_code_line(self, text: str, lang: str, base_bg: str):
+        if not text:
+            return
+        lx = self._get_lexer(lang) if lang else None
+        self.setFormat(0, len(text), self._format_for_ttype(pyg_token.Text, base_bg) if _HAS_PYGMENTS else self._fmt["codeblock_content"])
+        if (not _HAS_PYGMENTS) or lx is None:
+            return
+        try:
+            idx = 0
+            text_nl = text if text.endswith("\n") else text + "\n"
+            for ttype, value in lx.get_tokens(text_nl):
+                if not value:
+                    continue
+                ln = len(value)
+                if idx + ln > len(text):
+                    ln = len(text) - idx
+                if ln > 0:
+                    try:
+                        fmt = self._format_for_ttype(ttype, base_bg)
+                        self.setFormat(idx, ln, fmt)
+                    except Exception:
+                        pass
+                idx += ln
+                if idx >= len(text):
+                    break
+        except Exception:
+            return
+
+    @staticmethod
+    def _parse_fence_lang(text: str) -> str:
+        s = text.strip()
+        if not s.startswith("```"):
+            return ""
+        tail = s[3:].strip()
+        if not tail:
+            return ""
+        first_word = re.split(r"\s|,|;|:", tail, 1)[0]
+        return first_word.lower().strip()
 
     def set_active_cursor(self, block_number: int, col: int):
         self.active_block = block_number
@@ -180,19 +325,35 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
     def highlightBlock(self, text: str):
         block_num = self.currentBlock().blockNumber()
         prev_state = self.previousBlockState()
+        t = self._current_theme_data()
+        base_bg = t.get("codeblock_bg", "#F2EEE6")
 
         if prev_state == 1:
-            self.setFormat(0, len(text), self._fmt["codeblock_content"])
             if text.strip().startswith("```"):
                 self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
                 if len(text.strip()) > 3:
                     self.setFormat(3, len(text.strip()) - 3, self._fmt["marker_codeblock_fence"])
+                self.setFormat(0, len(text), self._fmt["codeblock_content"])
+                self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
+                if len(text.strip()) > 3:
+                    self.setFormat(3, len(text.strip()) - 3, self._fmt["marker_codeblock_fence"])
                 self.setCurrentBlockState(0)
-                self.block_meta[block_num] = "code"
+                self.block_meta[block_num] = "code_fence_end"
+                for start_b, info in list(self.code_block_info.items()):
+                    if info.get("end") is None and info.get("pending", True):
+                        info["end"] = block_num
+                        info["pending"] = False
+                return
             else:
                 self.setCurrentBlockState(1)
-                self.block_meta[block_num] = "code"
-            return
+                self.block_meta[block_num] = "code_body"
+                resolved_lang = ""
+                for start_b, info in self.code_block_info.items():
+                    if info.get("end") is None and info.get("pending", True) and (info.get("start") is None or block_num > info.get("start", -1)):
+                        resolved_lang = info.get("lang", "") or ""
+                        break
+                self._highlight_code_line(text, resolved_lang, base_bg)
+                return
 
         if text.strip().startswith("```"):
             self.setFormat(0, min(3, len(text)), self._fmt["marker_codeblock_fence"])
@@ -204,7 +365,9 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
             if lang_part_len > 0:
                 self.setFormat(3, lang_part_len, self._fmt["marker_codeblock_fence"])
             self.setCurrentBlockState(1)
-            self.block_meta[block_num] = "code"
+            lang = self._parse_fence_lang(text) or ""
+            self.code_block_info[block_num] = {"start": block_num, "end": None, "lang": lang, "pending": True}
+            self.block_meta[block_num] = "code_fence_start"
             return
 
         self.setCurrentBlockState(0)
@@ -325,6 +488,7 @@ class _MixedTextEdit(QTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._hl = None
+        self._current_theme = DEFAULT_THEME
         self.setTabChangesFocus(False)
         self.setMouseTracking(False)
         self.setAcceptRichText(False)
@@ -336,6 +500,191 @@ class _MixedTextEdit(QTextEdit):
 
     def set_highlighter(self, hl: MarkdownMixedHighlighter):
         self._hl = hl
+
+    def set_theme_name(self, theme_name: str):
+        if theme_name in THEMES:
+            self._current_theme = theme_name
+            self.viewport().update()
+
+    def _current_theme(self) -> dict:
+        return THEMES.get(self._current_theme, THEMES[DEFAULT_THEME])
+
+    def _collect_code_blocks(self) -> List[Tuple[int, int, str]]:
+        res: List[Tuple[int, int, str]] = []
+        if self._hl is None:
+            return res
+        seen_starts = set()
+        for start_b, info in self._hl.code_block_info.items():
+            if start_b in seen_starts:
+                continue
+            end_b = info.get("end")
+            if end_b is None or not isinstance(end_b, int):
+                continue
+            if start_b > end_b:
+                continue
+            lang = (info.get("lang") or "").strip()
+            res.append((int(start_b), int(end_b), lang))
+            seen_starts.add(start_b)
+        res.sort(key=lambda x: x[0])
+        return res
+
+    def _block_viewport_rect(self, block_number: int) -> QRect:
+        doc = self.document()
+        if doc is None:
+            return QRect()
+        blk = doc.findBlockByNumber(block_number)
+        if not blk.isValid():
+            return QRect()
+        curs = QTextCursor(blk)
+        r1 = self.cursorRect(curs)
+        curs.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        r2 = self.cursorRect(curs)
+        x = min(r1.x(), r2.x())
+        y = min(r1.y(), r2.y())
+        w = max(r1.right(), r2.right()) - x
+        h = max(r1.bottom(), r2.bottom()) - y
+        return QRect(x, y, w, max(h, r1.height()))
+
+    @staticmethod
+    def _rounded_rect_path(r: QRectF, radius: float) -> QPainterPath:
+        path = QPainterPath()
+        x, y, w, h = r.x(), r.y(), r.width(), r.height()
+        if w <= 0 or h <= 0:
+            return path
+        path.addRoundedRect(QRectF(x, y, w, h), radius, radius)
+        return path
+
+    def _draw_code_block_background(self, painter: QPainter, start_b: int, end_b: int, lang: str):
+        t = self._current_theme()
+        is_dark = t.get("group") == "dark"
+        start_rect = self._block_viewport_rect(start_b)
+        end_rect = self._block_viewport_rect(end_b)
+        if start_rect.isNull() or end_rect.isNull():
+            return
+        pad_l = 14
+        pad_r = 14
+        pad_top = 14
+        pad_bottom = 20
+        header_top = 22
+        full_left = min(start_rect.left(), end_rect.left()) - pad_l
+        full_top = min(start_rect.top(), end_rect.top()) - pad_top
+        full_right = max(start_rect.right(), end_rect.right()) + pad_r
+        full_bottom = max(start_rect.bottom(), end_rect.bottom()) + pad_bottom
+        x = max(0, full_left)
+        y = max(0, full_top)
+        w = max(24, full_right - x)
+        h = max(40, full_bottom - y)
+        outer = QRectF(x, y, w, h)
+        radius = 12.0
+
+        painter.save()
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            base_bg = QColor(t.get("codeblock_bg", "#F2EEE6"))
+            border_color = QColor(t.get("border", "#D6E0D1"))
+            if is_dark:
+                border_color = border_color.lighter(120) if border_color.lightness() < 160 else border_color
+            painter.setPen(Qt.PenStyle.NoPen)
+
+            # 1) 阴影底（极淡）
+            shadow_color = QColor(0, 0, 0, 24) if not is_dark else QColor(0, 0, 0, 70)
+            shadow = QRectF(x + 2, y + 4, w, h)
+            painter.setBrush(QBrush(shadow_color))
+            painter.drawPath(self._rounded_rect_path(shadow, radius))
+
+            # 2) 主体背景圆角框
+            painter.setBrush(QBrush(base_bg))
+            painter.drawPath(self._rounded_rect_path(outer, radius))
+
+            # 3) 1px 细描边，整洁感
+            pen = QPen(border_color)
+            pen.setWidthF(1.0)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(self._rounded_rect_path(outer, radius))
+
+            # 4) 顶部分隔线（视觉上区分“代码图片”的标题栏和代码区）
+            split_y = y + pad_top + header_top
+            split_pen = QPen(border_color)
+            split_pen.setWidthF(0.8)
+            painter.setPen(split_pen)
+            painter.drawLine(QPointF(x + pad_l, split_y), QPointF(x + w - pad_r, split_y))
+
+        finally:
+            painter.restore()
+
+    def _draw_code_block_chrome(self, painter: QPainter, start_b: int, end_b: int, lang: str):
+        t = self._current_theme()
+        is_dark = t.get("group") == "dark"
+        start_rect = self._block_viewport_rect(start_b)
+        end_rect = self._block_viewport_rect(end_b)
+        if start_rect.isNull() or end_rect.isNull():
+            return
+        pad_l = 14
+        pad_r = 14
+        pad_top = 14
+        pad_bottom = 20
+        full_left = min(start_rect.left(), end_rect.left()) - pad_l
+        full_top = min(start_rect.top(), end_rect.top()) - pad_top
+        full_right = max(start_rect.right(), end_rect.right()) + pad_r
+        full_bottom = max(start_rect.bottom(), end_rect.bottom()) + pad_bottom
+        x = max(0, full_left)
+        y = max(0, full_top)
+        w = max(24, full_right - x)
+        h = max(40, full_bottom - y)
+
+        painter.save()
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+            # 左上三个红 / 黄 / 绿交通灯圆点
+            dot_r = 4.2
+            dot_gap = 9.0
+            dot_y = y + pad_top + 8.0
+            base_x = x + pad_l + 6.0
+            dot_colors = ("#FF5F57", "#FEBC2E", "#28C840")
+            painter.setPen(Qt.PenStyle.NoPen)
+            for i, hexcol in enumerate(dot_colors):
+                cx = base_x + (dot_r * 2 + dot_gap) * i + dot_r
+                pen_col = QColor(0, 0, 0, 30)
+                p = QPen(pen_col)
+                p.setWidthF(0.6)
+                painter.setPen(p)
+                painter.setBrush(QBrush(QColor(hexcol)))
+                painter.drawEllipse(QPointF(cx, dot_y), dot_r, dot_r)
+            painter.setPen(Qt.PenStyle.NoPen)
+
+            # 右下语言标签
+            label_lang = (lang or "").lower()
+            if not label_lang:
+                label_lang = "code"
+            label_font = QFont()
+            label_font.setPointSize(9)
+            label_font.setWeight(QFont.Weight.Medium)
+            fm = QFontMetrics(label_font)
+            label_w = max(64, fm.horizontalAdvance(label_lang) + 22)
+            label_h = 22
+            label_x = x + w - pad_r - label_w
+            label_y = y + h - 6
+            label_rect = QRectF(label_x, label_y, label_w, label_h)
+            label_bg = QColor(255, 255, 255, 160) if not is_dark else QColor(0, 0, 0, 120)
+            label_text_fg = QColor("#3F4346") if not is_dark else QColor("#E3E6EA")
+            label_border = QColor(0, 0, 0, 40) if not is_dark else QColor(255, 255, 255, 40)
+            painter.setBrush(QBrush(label_bg))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawPath(self._rounded_rect_path(label_rect, 6.0))
+            lpen = QPen(label_border)
+            lpen.setWidthF(0.8)
+            painter.setPen(lpen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(self._rounded_rect_path(label_rect, 6.0))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setPen(QPen(label_text_fg))
+            painter.setFont(label_font)
+            painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, label_lang)
+
+        finally:
+            painter.restore()
 
     def set_background_image(self, path: str, alpha=None):
         if path and isinstance(path, str):
@@ -365,11 +714,11 @@ class _MixedTextEdit(QTextEdit):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        if self._bg_raw_pixmap is not None:
-            self.viewport().update()
+        self.viewport().update()
 
     def paintEvent(self, e):
         vp = self.viewport()
+        bg_painted = False
         if self._bg_raw_pixmap is not None and not self._bg_raw_pixmap.isNull():
             painter = QPainter(vp)
             try:
@@ -407,7 +756,28 @@ class _MixedTextEdit(QTextEdit):
                 painter.fillRect(draw_rect, base_color)
             finally:
                 painter.end()
+            bg_painted = True
+
+        # 代码块背景圆角框（在文字内容之前画 → 背景）
+        code_blocks = self._collect_code_blocks()
+        if code_blocks:
+            painter = QPainter(vp)
+            try:
+                for (sb, eb, lang) in code_blocks:
+                    self._draw_code_block_background(painter, sb, eb, lang)
+            finally:
+                painter.end()
+
         super().paintEvent(e)
+
+        # 代码块装饰：交通灯圆点 + 语言标签（在文字之上，不挡内容）
+        if code_blocks:
+            painter = QPainter(vp)
+            try:
+                for (sb, eb, lang) in code_blocks:
+                    self._draw_code_block_chrome(painter, sb, eb, lang)
+            finally:
+                painter.end()
 
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         if source.hasImage():
@@ -577,6 +947,7 @@ class MarkdownEditor(QWidget):
         self.save_btn.setStyleSheet(qss["save_btn"])
         self.toolbar_container.setStyleSheet(qss["toolbar_container"])
         self.edit.setStyleSheet(qss["textedit"])
+        self.edit.set_theme_name(theme_name)
         self.save_status.setStyleSheet(
             f"color:{t['save_color']}; font-size:12px; font-weight:500;"
         )

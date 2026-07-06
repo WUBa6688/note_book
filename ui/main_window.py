@@ -25,6 +25,8 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         self.setWindowTitle("Zhuibook · 现代 Markdown 笔记")
+        self.resize(1240, 780)
+        self.setMinimumSize(960, 600)
         central = QWidget()
         self.setCentralWidget(central)
         root = QHBoxLayout(central)
@@ -33,7 +35,8 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.setHandleWidth(1)
+        splitter.setHandleWidth(4)
+        splitter.setStyleSheet("QSplitter::handle{background:transparent;} QSplitter::handle:hover{background:rgba(0,0,0,40);}")
         self.splitter = splitter
 
         self.sidebar = Sidebar(self.db, theme_name=self.current_theme)

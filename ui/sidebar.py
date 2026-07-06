@@ -111,7 +111,6 @@ class Sidebar(QWidget):
         layout.addWidget(self.note_list, 1)
 
         self.setMinimumWidth(300)
-        self.setMaximumWidth(420)
         self.refresh_categories()
         self.refresh_notes()
 
