@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
     QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect,
     QColorDialog, QDialog, QSpinBox, QAbstractSpinBox, QMenu,
-    QFileDialog, QSlider, QDialogButtonBox
+    QFileDialog, QSlider, QDialogButtonBox, QLayout, QLayoutItem
 )
 try:
     from pygments import lexers, styles, token as pyg_token
@@ -29,6 +29,93 @@ except Exception:
 from core.database import Category, get_assets_dir, get_assets_root
 from core.settings import load_settings, save_settings
 from .theme import THEMES, DEFAULT_THEME, get_editor_qss
+
+
+class FlowLayout(QLayout):
+    def __init__(self, parent=None, margin=4, spacing=-1, h_spacing=4, v_spacing=4):
+        super().__init__(parent)
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        self._spacing_x = spacing if spacing >= 0 else h_spacing
+        self._spacing_y = spacing if spacing >= 0 else v_spacing
+        self._item_list: List[QLayoutItem] = []
+
+    def __del__(self):
+        item = self.takeAt(0)
+        while item is not None:
+            del item
+            item = self.takeAt(0)
+
+    def addItem(self, item: QLayoutItem):
+        self._item_list.append(item)
+
+    def horizontal_spacing(self):
+        return self._spacing_x
+
+    def vertical_spacing(self):
+        return self._spacing_y
+
+    def count(self):
+        return len(self._item_list)
+
+    def itemAt(self, index: int):
+        if 0 <= index < len(self._item_list):
+            return self._item_list[index]
+        return None
+
+    def takeAt(self, index: int):
+        if 0 <= index < len(self._item_list):
+            return self._item_list.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width: int):
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect: QRect):
+        super().setGeometry(rect)
+        self._do_layout(rect, test_only=False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._item_list:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        size += QSize(m.left() + m.right(), m.top() + m.bottom())
+        return size
+
+    def _do_layout(self, rect: QRect, test_only: bool):
+        m = self.contentsMargins()
+        effective = rect.adjusted(+m.left(), +m.top(), -m.right(), -m.bottom())
+        x = effective.x()
+        y = effective.y()
+        line_height = 0
+        space_x = max(2, self._spacing_x)
+        space_y = max(2, self._spacing_y)
+        for item in self._item_list:
+            if item is None:
+                continue
+            next_x = x + item.sizeHint().width() + space_x
+            if next_x - space_x > effective.right() and line_height > 0:
+                x = effective.x()
+                y = y + line_height + space_y
+                next_x = x + item.sizeHint().width() + space_x
+                line_height = 0
+            if not test_only:
+                sh = item.sizeHint()
+                g = QRect(int(x), int(y), max(0, sh.width()), max(0, sh.height()))
+                item.setGeometry(g)
+            x = next_x
+            line_height = max(line_height, item.sizeHint().height())
+        return y + line_height - rect.y() + m.bottom()
 
 
 def _fmt(**kwargs):
@@ -876,13 +963,15 @@ class MarkdownEditor(QWidget):
         self.title_edit.textChanged.connect(self._on_any_changed)
         hdr_layout.addWidget(self.title_edit)
 
-        meta_row = QHBoxLayout()
-        meta_row.setSpacing(12)
+        meta_row = FlowLayout(margin=0, spacing=10, h_spacing=10, v_spacing=8)
+        meta_row.setSpacing(10)
         self.save_status = QLabel("✓ 已保存")
         self.dot = QLabel("·")
         self.word_count = QLabel("0 字")
         self.cat_label = QLabel("分类")
         self.category_combo = QComboBox()
+        self.category_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.category_combo.setMinimumWidth(180)
         self.category_combo.currentIndexChanged.connect(self._on_category_changed_ui)
 
         self.save_btn = QToolButton()
@@ -895,18 +984,19 @@ class MarkdownEditor(QWidget):
         meta_row.addWidget(self.save_status)
         meta_row.addWidget(self.dot)
         meta_row.addWidget(self.word_count)
-        meta_row.addSpacing(16)
+        spacer_lbl = QLabel(" ")
+        spacer_lbl.setFixedWidth(6)
+        meta_row.addWidget(spacer_lbl)
         meta_row.addWidget(self.cat_label)
-        meta_row.addWidget(self.category_combo, 1)
+        meta_row.addWidget(self.category_combo)
         meta_row.addWidget(self.save_btn)
         hdr_layout.addLayout(meta_row)
 
         self.toolbar_container = QFrame()
-        toolbar_layout_wrap = QHBoxLayout(self.toolbar_container)
-        toolbar_layout_wrap.setContentsMargins(6, 4, 6, 4)
-        toolbar_layout_wrap.setSpacing(0)
-        toolbar = self._build_toolbar()
-        toolbar_layout_wrap.addLayout(toolbar)
+        toolbar_layout_wrap = FlowLayout(self.toolbar_container, margin=6, spacing=3, h_spacing=3, v_spacing=5)
+        toolbar_layout_wrap.setSpacing(3)
+        toolbar_layout_wrap.setContentsMargins(6, 5, 6, 5)
+        self._build_toolbar(toolbar_layout_wrap)
         hdr_layout.addWidget(self.toolbar_container)
 
         root.addWidget(self.header)
@@ -1002,9 +1092,7 @@ class MarkdownEditor(QWidget):
         k_sc = QShortcut(QKeySequence("Ctrl+`"), self.edit)
         k_sc.activated.connect(self._wrap_code)
 
-    def _build_toolbar(self):
-        bar = QHBoxLayout()
-        bar.setSpacing(2)
+    def _build_toolbar(self, bar):
         actions = [
             ("B", self._wrap_bold, "粗体 Ctrl+B", True),
             ("I", self._wrap_italic, "斜体 Ctrl+I", True),
@@ -1115,9 +1203,6 @@ class MarkdownEditor(QWidget):
         self.bg_image_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toolbar_btns.append(self.bg_image_btn)
         bar.addWidget(self.bg_image_btn)
-
-        bar.addStretch(1)
-        return bar
 
     def _get_cursor(self):
         return self.edit.textCursor()
