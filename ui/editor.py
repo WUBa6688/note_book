@@ -271,7 +271,17 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
         if not text:
             return
         lx = self._get_lexer(lang) if lang else None
-        self.setFormat(0, len(text), self._format_for_ttype(pyg_token.Text, base_bg) if _HAS_PYGMENTS else self._fmt["codeblock_content"])
+        if _HAS_PYGMENTS:
+            try:
+                default_fmt = self._format_for_ttype(pyg_token.Text, base_bg)
+            except Exception:
+                default_fmt = self._fmt["codeblock_content"]
+        else:
+            default_fmt = self._fmt["codeblock_content"]
+        try:
+            self.setFormat(0, len(text), default_fmt)
+        except Exception:
+            pass
         if (not _HAS_PYGMENTS) or lx is None:
             return
         try:
@@ -555,136 +565,144 @@ class _MixedTextEdit(QTextEdit):
         return path
 
     def _draw_code_block_background(self, painter: QPainter, start_b: int, end_b: int, lang: str):
-        t = self._current_theme()
-        is_dark = t.get("group") == "dark"
-        start_rect = self._block_viewport_rect(start_b)
-        end_rect = self._block_viewport_rect(end_b)
-        if start_rect.isNull() or end_rect.isNull():
-            return
-        pad_l = 14
-        pad_r = 14
-        pad_top = 14
-        pad_bottom = 20
-        header_top = 22
-        full_left = min(start_rect.left(), end_rect.left()) - pad_l
-        full_top = min(start_rect.top(), end_rect.top()) - pad_top
-        full_right = max(start_rect.right(), end_rect.right()) + pad_r
-        full_bottom = max(start_rect.bottom(), end_rect.bottom()) + pad_bottom
-        x = max(0, full_left)
-        y = max(0, full_top)
-        w = max(24, full_right - x)
-        h = max(40, full_bottom - y)
-        outer = QRectF(x, y, w, h)
-        radius = 12.0
-
-        painter.save()
         try:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            base_bg = QColor(t.get("codeblock_bg", "#F2EEE6"))
-            border_color = QColor(t.get("border", "#D6E0D1"))
-            if is_dark:
-                border_color = border_color.lighter(120) if border_color.lightness() < 160 else border_color
-            painter.setPen(Qt.PenStyle.NoPen)
+            t = self._current_theme()
+            is_dark = t.get("group") == "dark"
+            start_rect = self._block_viewport_rect(start_b)
+            end_rect = self._block_viewport_rect(end_b)
+            if start_rect.isNull() or end_rect.isNull():
+                return
+            pad_l = 14
+            pad_r = 14
+            pad_top = 14
+            pad_bottom = 20
+            header_top = 22
+            full_left = min(start_rect.left(), end_rect.left()) - pad_l
+            full_top = min(start_rect.top(), end_rect.top()) - pad_top
+            full_right = max(start_rect.right(), end_rect.right()) + pad_r
+            full_bottom = max(start_rect.bottom(), end_rect.bottom()) + pad_bottom
+            x = max(0, full_left)
+            y = max(0, full_top)
+            w = max(24, full_right - x)
+            h = max(40, full_bottom - y)
+            outer = QRectF(x, y, w, h)
+            radius = 12.0
 
-            # 1) 阴影底（极淡）
-            shadow_color = QColor(0, 0, 0, 24) if not is_dark else QColor(0, 0, 0, 70)
-            shadow = QRectF(x + 2, y + 4, w, h)
-            painter.setBrush(QBrush(shadow_color))
-            painter.drawPath(self._rounded_rect_path(shadow, radius))
+            painter.save()
+            try:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                base_bg = QColor(t.get("codeblock_bg", "#F2EEE6"))
+                border_color = QColor(t.get("border", "#D6E0D1"))
+                if is_dark:
+                    if border_color.lightness() < 160:
+                        border_color = border_color.lighter(120)
+                painter.setPen(Qt.PenStyle.NoPen)
 
-            # 2) 主体背景圆角框
-            painter.setBrush(QBrush(base_bg))
-            painter.drawPath(self._rounded_rect_path(outer, radius))
+                shadow_color = QColor(0, 0, 0, 24) if not is_dark else QColor(0, 0, 0, 70)
+                shadow = QRectF(x + 2, y + 4, w, h)
+                painter.setBrush(QBrush(shadow_color))
+                painter.drawPath(self._rounded_rect_path(shadow, radius))
 
-            # 3) 1px 细描边，整洁感
-            pen = QPen(border_color)
-            pen.setWidthF(1.0)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(self._rounded_rect_path(outer, radius))
+                painter.setBrush(QBrush(base_bg))
+                painter.drawPath(self._rounded_rect_path(outer, radius))
 
-            # 4) 顶部分隔线（视觉上区分“代码图片”的标题栏和代码区）
-            split_y = y + pad_top + header_top
-            split_pen = QPen(border_color)
-            split_pen.setWidthF(0.8)
-            painter.setPen(split_pen)
-            painter.drawLine(QPointF(x + pad_l, split_y), QPointF(x + w - pad_r, split_y))
+                pen = QPen(border_color)
+                pen.setWidthF(1.0)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(self._rounded_rect_path(outer, radius))
 
-        finally:
-            painter.restore()
+                split_y = y + pad_top + header_top
+                split_pen = QPen(border_color)
+                split_pen.setWidthF(0.8)
+                painter.setPen(split_pen)
+                painter.drawLine(QPointF(x + pad_l, split_y), QPointF(x + w - pad_r, split_y))
+            finally:
+                painter.restore()
+        except Exception:
+            return
 
     def _draw_code_block_chrome(self, painter: QPainter, start_b: int, end_b: int, lang: str):
-        t = self._current_theme()
-        is_dark = t.get("group") == "dark"
-        start_rect = self._block_viewport_rect(start_b)
-        end_rect = self._block_viewport_rect(end_b)
-        if start_rect.isNull() or end_rect.isNull():
-            return
-        pad_l = 14
-        pad_r = 14
-        pad_top = 14
-        pad_bottom = 20
-        full_left = min(start_rect.left(), end_rect.left()) - pad_l
-        full_top = min(start_rect.top(), end_rect.top()) - pad_top
-        full_right = max(start_rect.right(), end_rect.right()) + pad_r
-        full_bottom = max(start_rect.bottom(), end_rect.bottom()) + pad_bottom
-        x = max(0, full_left)
-        y = max(0, full_top)
-        w = max(24, full_right - x)
-        h = max(40, full_bottom - y)
-
-        painter.save()
         try:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            t = self._current_theme()
+            is_dark = t.get("group") == "dark"
+            start_rect = self._block_viewport_rect(start_b)
+            end_rect = self._block_viewport_rect(end_b)
+            if start_rect.isNull() or end_rect.isNull():
+                return
+            pad_l = 14
+            pad_r = 14
+            pad_top = 14
+            full_left = min(start_rect.left(), end_rect.left()) - pad_l
+            full_top = min(start_rect.top(), end_rect.top()) - pad_top
+            full_right = max(start_rect.right(), end_rect.right()) + pad_r
+            full_bottom = max(start_rect.bottom(), end_rect.bottom()) + 20
+            x = max(0, full_left)
+            y = max(0, full_top)
+            w = max(24, full_right - x)
+            h = max(40, full_bottom - y)
 
-            # 左上三个红 / 黄 / 绿交通灯圆点
-            dot_r = 4.2
-            dot_gap = 9.0
-            dot_y = y + pad_top + 8.0
-            base_x = x + pad_l + 6.0
-            dot_colors = ("#FF5F57", "#FEBC2E", "#28C840")
-            painter.setPen(Qt.PenStyle.NoPen)
-            for i, hexcol in enumerate(dot_colors):
-                cx = base_x + (dot_r * 2 + dot_gap) * i + dot_r
-                pen_col = QColor(0, 0, 0, 30)
-                p = QPen(pen_col)
-                p.setWidthF(0.6)
-                painter.setPen(p)
-                painter.setBrush(QBrush(QColor(hexcol)))
-                painter.drawEllipse(QPointF(cx, dot_y), dot_r, dot_r)
-            painter.setPen(Qt.PenStyle.NoPen)
+            painter.save()
+            try:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-            # 右下语言标签
-            label_lang = (lang or "").lower()
-            if not label_lang:
-                label_lang = "code"
-            label_font = QFont()
-            label_font.setPointSize(9)
-            label_font.setWeight(QFont.Weight.Medium)
-            fm = QFontMetrics(label_font)
-            label_w = max(64, fm.horizontalAdvance(label_lang) + 22)
-            label_h = 22
-            label_x = x + w - pad_r - label_w
-            label_y = y + h - 6
-            label_rect = QRectF(label_x, label_y, label_w, label_h)
-            label_bg = QColor(255, 255, 255, 160) if not is_dark else QColor(0, 0, 0, 120)
-            label_text_fg = QColor("#3F4346") if not is_dark else QColor("#E3E6EA")
-            label_border = QColor(0, 0, 0, 40) if not is_dark else QColor(255, 255, 255, 40)
-            painter.setBrush(QBrush(label_bg))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawPath(self._rounded_rect_path(label_rect, 6.0))
-            lpen = QPen(label_border)
-            lpen.setWidthF(0.8)
-            painter.setPen(lpen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(self._rounded_rect_path(label_rect, 6.0))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setPen(QPen(label_text_fg))
-            painter.setFont(label_font)
-            painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, label_lang)
+                dot_r = 4.2
+                dot_gap = 9.0
+                dot_y = y + pad_top + 8.0
+                base_x = x + pad_l + 6.0
+                dot_colors = ("#FF5F57", "#FEBC2E", "#28C840")
+                painter.setPen(Qt.PenStyle.NoPen)
+                for i, hexcol in enumerate(dot_colors):
+                    cx = base_x + (dot_r * 2 + dot_gap) * i + dot_r
+                    try:
+                        pen_col = QColor(0, 0, 0, 30)
+                        p = QPen(pen_col)
+                        p.setWidthF(0.6)
+                        painter.setPen(p)
+                        painter.setBrush(QBrush(QColor(hexcol)))
+                        painter.drawEllipse(QPointF(cx, dot_y), dot_r, dot_r)
+                    except Exception:
+                        continue
+                painter.setPen(Qt.PenStyle.NoPen)
 
-        finally:
-            painter.restore()
+                label_lang = (lang or "").lower()
+                if not label_lang:
+                    label_lang = "code"
+                label_font = QFont()
+                label_font.setPointSize(9)
+                try:
+                    label_font.setWeight(500)
+                except Exception:
+                    label_font.setBold(True)
+                fm = QFontMetrics(label_font)
+                try:
+                    adv = fm.horizontalAdvance(label_lang)
+                except Exception:
+                    adv = 30
+                label_w = max(64, int(adv) + 22)
+                label_h = 22
+                label_x = x + w - pad_r - label_w
+                label_y = y + h - 6
+                label_rect = QRectF(label_x, label_y, label_w, label_h)
+                label_bg = QColor(255, 255, 255, 160) if not is_dark else QColor(0, 0, 0, 120)
+                label_text_fg = QColor("#3F4346") if not is_dark else QColor("#E3E6EA")
+                label_border = QColor(0, 0, 0, 40) if not is_dark else QColor(255, 255, 255, 40)
+                painter.setBrush(QBrush(label_bg))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawPath(self._rounded_rect_path(label_rect, 6.0))
+                lpen = QPen(label_border)
+                lpen.setWidthF(0.8)
+                painter.setPen(lpen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(self._rounded_rect_path(label_rect, 6.0))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setPen(QPen(label_text_fg))
+                painter.setFont(label_font)
+                painter.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, label_lang)
+            finally:
+                painter.restore()
+        except Exception:
+            return
 
     def set_background_image(self, path: str, alpha=None):
         if path and isinstance(path, str):
