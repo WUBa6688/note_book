@@ -97,25 +97,42 @@ class FlowLayout(QLayout):
         effective = rect.adjusted(+m.left(), +m.top(), -m.right(), -m.bottom())
         x = effective.x()
         y = effective.y()
-        line_height = 0
         space_x = max(2, self._spacing_x)
         space_y = max(2, self._spacing_y)
+        current_row: List[Tuple[QLayoutItem, int, int]] = []
+        row_line_h = 0
+
+        def flush_row(row_items, row_y, line_h):
+            if not row_items:
+                return line_h
+            for (it, ix, ih) in row_items:
+                top = row_y + max(0, (line_h - ih) // 2)
+                sh = it.sizeHint()
+                g = QRect(int(ix), int(top), max(0, sh.width()), max(0, sh.height()))
+                if not test_only:
+                    it.setGeometry(g)
+            return line_h
+
         for item in self._item_list:
             if item is None:
                 continue
-            next_x = x + item.sizeHint().width() + space_x
-            if next_x - space_x > effective.right() and line_height > 0:
+            sh = item.sizeHint()
+            iw = sh.width()
+            ih = sh.height()
+            next_x = x + iw + space_x
+            need_newline = (row_line_h > 0) and (next_x - space_x > effective.right())
+            if need_newline:
+                flush_row(current_row, y, row_line_h)
+                current_row = []
+                y += row_line_h + space_y
                 x = effective.x()
-                y = y + line_height + space_y
-                next_x = x + item.sizeHint().width() + space_x
-                line_height = 0
-            if not test_only:
-                sh = item.sizeHint()
-                g = QRect(int(x), int(y), max(0, sh.width()), max(0, sh.height()))
-                item.setGeometry(g)
+                next_x = x + iw + space_x
+                row_line_h = 0
+            current_row.append((item, x, ih))
+            row_line_h = max(row_line_h, ih)
             x = next_x
-            line_height = max(line_height, item.sizeHint().height())
-        return y + line_height - rect.y() + m.bottom()
+        total_bottom = y + flush_row(current_row, y, row_line_h) - rect.y() + m.bottom()
+        return max(0, total_bottom)
 
 
 def _fmt(**kwargs):
@@ -1012,9 +1029,13 @@ class MarkdownEditor(QWidget):
         meta_row = FlowLayout(margin=0, spacing=10, h_spacing=10, v_spacing=8)
         meta_row.setSpacing(10)
         self.save_status = QLabel("✓ 已保存")
+        self.save_status.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.dot = QLabel("·")
+        self.dot.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self.word_count = QLabel("0 字")
+        self.word_count.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.cat_label = QLabel("分类")
+        self.cat_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.category_combo = QComboBox()
         self.category_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.category_combo.setMinimumWidth(180)
@@ -1129,6 +1150,41 @@ class MarkdownEditor(QWidget):
             self._highlighter.apply_theme(theme_name, force_rehighlight=False)
         else:
             self._highlighter.apply_theme(theme_name, force_rehighlight=True)
+        self._sync_meta_label_heights()
+
+    def _sync_meta_label_heights(self):
+        try:
+            ref_h = 0
+            for w in [self.category_combo, self.font_size_combo, self.save_btn]:
+                try:
+                    sh = w.sizeHint()
+                    if sh is not None and sh.height() > ref_h:
+                        ref_h = sh.height()
+                except Exception:
+                    pass
+            if ref_h <= 0:
+                return
+            for w in [self.save_status, self.dot, self.word_count,
+                      self.cat_label, self.font_size_label]:
+                try:
+                    w.setMinimumHeight(ref_h)
+                    w.setMaximumHeight(ref_h)
+                except Exception:
+                    pass
+            for w in self.header.findChildren(QLabel):
+                try:
+                    if w is None or w in [self.save_status, self.dot, self.word_count,
+                                          self.cat_label, self.font_size_label]:
+                        continue
+                    txt = (w.text() or "")
+                    if txt.strip() in ("", "·"):
+                        continue
+                    if w.minimumHeight() != ref_h:
+                        w.setMinimumHeight(max(w.minimumHeight(), ref_h // 2))
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _install_shortcuts(self):
         b_sc = QShortcut(QKeySequence("Ctrl+B"), self.edit)
@@ -1188,6 +1244,7 @@ class MarkdownEditor(QWidget):
         bar.addWidget(sep)
 
         self.font_size_label = QLabel("字号")
+        self.font_size_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         bar.addWidget(self.font_size_label)
         self.font_size_combo = QComboBox()
         self.font_size_combo.setFixedWidth(98)
