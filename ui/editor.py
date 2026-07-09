@@ -188,15 +188,20 @@ def _build_md_formats(t: dict) -> dict:
     link_url_hidden.setFont(lu_font)
 
     marker_visible = _fmt(foreground=t["marker_visible"], letter_spacing_pct=0)
+    try:
+        _fence_col = QColor(t.get("codeblock_fence", "#9AA099"))
+        if _fence_col.alpha() > 180:
+            _fence_col.setAlpha(150)
+    except Exception:
+        _fence_col = QColor(160, 168, 160, 150)
     marker_codeblock_fence = _fmt(
-        foreground=t["codeblock_fence"], family="Consolas", size=11, letter_spacing_pct=0
+        foreground=_fence_col, family="Consolas", size=9, letter_spacing_pct=0
     )
     code_inline_content = _fmt(
         background=t["inlinecode_bg"],
         family="Consolas", size=13, letter_spacing_pct=0
     )
     codeblock_content = _fmt(
-        background=t["codeblock_bg"],
         family="Consolas", size=12, letter_spacing_pct=0
     )
     block_quote_fmt = _fmt(
@@ -780,10 +785,10 @@ class _MixedTextEdit(QTextEdit):
             end_rect = self._block_viewport_rect(end_b)
             if start_rect.isNull() or end_rect.isNull():
                 return
-            pad_l = 14
-            pad_r = 14
-            pad_top = 14
-            full_left = min(start_rect.left(), end_rect.left()) - pad_l
+            pad_l = 20
+            pad_r = 20
+            pad_top = 18
+            full_left = min(start_rect.left(), end_rect.left()) - pad_l - 12
             full_top = min(start_rect.top(), end_rect.top()) - pad_top
             full_right = max(start_rect.right(), end_rect.right()) + pad_r
             full_bottom = max(start_rect.bottom(), end_rect.bottom()) + 20
@@ -814,6 +819,34 @@ class _MixedTextEdit(QTextEdit):
                     except Exception:
                         continue
                 painter.setPen(Qt.PenStyle.NoPen)
+
+                doc = self.edit.document()
+                total_blocks = doc.blockCount()
+                line_font = QFont()
+                try:
+                    line_font.setFamilies(_FAMILY_MONO)
+                except Exception:
+                    line_font.setFamily("Consolas")
+                line_font.setPointSize(10)
+                painter.setFont(line_font)
+                line_fg = QColor("#8A8F8A") if not is_dark else QColor("#7C8580")
+                painter.setPen(QPen(line_fg))
+                line_no_x = x + pad_l
+                line_no_w = 56
+                line_counter = 0
+                for bnum in range(start_b + 1, end_b):
+                    if bnum >= total_blocks:
+                        break
+                    r = self._block_viewport_rect(bnum)
+                    if r.isNull():
+                        continue
+                    line_counter += 1
+                    text = str(line_counter)
+                    rect = QRectF(line_no_x, r.top(), line_no_w, r.height())
+                    try:
+                        painter.drawText(rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, text)
+                    except Exception:
+                        continue
 
                 label_lang = (lang or "").lower()
                 if not label_lang:
@@ -1669,6 +1702,36 @@ class MarkdownEditor(QWidget):
                 hl.rehighlight()
             finally:
                 hl._in_rehighlight = False
+        try:
+            idx = block.blockNumber()
+            t = hl.block_meta.get(idx, "p")
+            if t in ("code", "code_fence_start", "code_fence_end"):
+                bf = block.blockFormat()
+                if bf.leftMargin() != 88:
+                    doc = self.edit.document()
+                    doc.blockSignals(True)
+                    try:
+                        c2 = QTextCursor(doc)
+                        c2.setPosition(block.position())
+                        c2.movePosition(QTextCursor.MoveOperation.EndOfBlock,
+                                        QTextCursor.MoveMode.KeepAnchor)
+                        need = bf.__class__()
+                        need.copy(bf)
+                        need.setLeftMargin(88)
+                        if t == "code":
+                            need.setTopMargin(1)
+                            need.setBottomMargin(1)
+                        elif t == "code_fence_start":
+                            need.setTopMargin(10)
+                            need.setBottomMargin(0)
+                        elif t == "code_fence_end":
+                            need.setTopMargin(0)
+                            need.setBottomMargin(10)
+                        c2.setBlockFormat(need)
+                    finally:
+                        doc.blockSignals(False)
+        except Exception:
+            pass
         self._apply_timer.start()
 
     def _update_word_count(self):
@@ -1685,17 +1748,24 @@ class MarkdownEditor(QWidget):
                 MIN = QTextBlockFormat.LineHeightTypes.MinimumHeight.value if hasattr(
                     QTextBlockFormat.LineHeightTypes, "MinimumHeight") else 2
                 presets = {
-                    "h1":    (42, MIN, 22, 14),
-                    "h2":    (36, MIN, 18, 12),
-                    "h3":    (32, MIN, 14, 10),
-                    "h4":    (28, MIN, 12, 8),
-                    "h5":    (24, MIN, 10, 6),
-                    "h6":    (22, MIN, 8,  4),
-                    "p":     (26, MIN, 5,  5),
-                    "ul":    (25, MIN, 4,  3),
-                    "ol":    (25, MIN, 4,  3),
-                    "quote": (26, MIN, 6,  6),
-                    "code":  (24, MIN, 2,  2),
+                    "h1":               (42, MIN, 22, 14),
+                    "h2":               (36, MIN, 18, 12),
+                    "h3":               (32, MIN, 14, 10),
+                    "h4":               (28, MIN, 12,  8),
+                    "h5":               (24, MIN, 10,  6),
+                    "h6":               (22, MIN,  8,  4),
+                    "p":                (26, MIN,  5,  5),
+                    "ul":               (25, MIN,  4,  3),
+                    "ol":               (25, MIN,  4,  3),
+                    "quote":            (26, MIN,  6,  6),
+                    "code":             (24, MIN,  1,  1),
+                    "code_fence_start": (18, MIN, 10,  0),
+                    "code_fence_end":   (18, MIN,  0, 10),
+                }
+                left_margins = {
+                    "code": 88,
+                    "code_fence_start": 88,
+                    "code_fence_end":   88,
                 }
                 cached = {}
                 for t, (lh, lht, tm, bm) in presets.items():
@@ -1703,33 +1773,39 @@ class MarkdownEditor(QWidget):
                     bf.setLineHeight(lh, lht)
                     bf.setTopMargin(tm)
                     bf.setBottomMargin(bm)
+                    if t in left_margins:
+                        bf.setLeftMargin(left_margins[t])
                     cached[t] = bf
                 self._cached_bfm = cached
             fmt_by_type = self._cached_bfm
             doc = self.edit.document()
-            block = doc.begin()
-            idx = 0
-            changes = []
-            total = doc.blockCount()
-            while block.isValid() and idx <= total + 10:
-                t = self._highlighter.block_meta.get(idx, "p")
-                t = t if t in fmt_by_type else "p"
-                last_t = self._last_block_types.get(idx)
-                if last_t != t:
-                    changes.append((block.position(), fmt_by_type[t]))
-                    self._last_block_types[idx] = t
-                idx += 1
-                block = block.next()
-            stale = [k for k in self._last_block_types if k >= idx]
-            for k in stale:
-                del self._last_block_types[k]
-            if changes:
-                cursor = QTextCursor(doc)
-                for pos, fmt in changes:
-                    cursor.setPosition(pos)
-                    cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock,
-                                        QTextCursor.MoveMode.KeepAnchor)
-                    cursor.setBlockFormat(fmt)
+            doc.blockSignals(True)
+            try:
+                block = doc.begin()
+                idx = 0
+                changes = []
+                total = doc.blockCount()
+                while block.isValid() and idx <= total + 10:
+                    t = self._highlighter.block_meta.get(idx, "p")
+                    t = t if t in fmt_by_type else "p"
+                    last_t = self._last_block_types.get(idx)
+                    if last_t != t:
+                        changes.append((block.position(), fmt_by_type[t]))
+                        self._last_block_types[idx] = t
+                    idx += 1
+                    block = block.next()
+                stale = [k for k in self._last_block_types if k >= idx]
+                for k in stale:
+                    del self._last_block_types[k]
+                if changes:
+                    cursor = QTextCursor(doc)
+                    for pos, fmt in changes:
+                        cursor.setPosition(pos)
+                        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock,
+                                            QTextCursor.MoveMode.KeepAnchor)
+                        cursor.setBlockFormat(fmt)
+            finally:
+                doc.blockSignals(False)
         finally:
             self._applying_block_fmts = False
 
