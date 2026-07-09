@@ -339,7 +339,6 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
 
     def _format_for_ttype(self, ttype, base_bg: str) -> QTextCharFormat:
         style = self._get_pygments_style()
-        bg_str = base_bg
         fg_str = None
         bold = False
         italic = False
@@ -349,8 +348,6 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                 entry = style.style_for_token(ttype) or {}
                 if entry.get("color"):
                     fg_str = "#" + entry["color"]
-                if entry.get("bgcolor"):
-                    bg_str = "#" + entry["bgcolor"]
                 if entry.get("bold"):
                     bold = True
                 if entry.get("italic"):
@@ -359,11 +356,11 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
                     underline = True
             except Exception:
                 pass
-        key_parts = [fg_str or "", bg_str, str(int(bold)), str(int(italic)), str(int(underline))]
+        key_parts = [fg_str or "", "__nobg__", str(int(bold)), str(int(italic)), str(int(underline))]
         key = "|".join(key_parts)
         if key in self._token_format_cache:
             return self._token_format_cache[key]
-        kwargs: Dict[str, Any] = {"family": "Consolas", "size": 12, "letter_spacing_pct": 0, "background": bg_str}
+        kwargs: Dict[str, Any] = {"family": "Consolas", "size": 12, "letter_spacing_pct": 0}
         if fg_str:
             kwargs["foreground"] = fg_str
         if bold:
@@ -1718,9 +1715,15 @@ class MarkdownEditor(QWidget):
                         need = bf.__class__()
                         need.copy(bf)
                         need.setLeftMargin(88)
+                        try:
+                            FH = QTextBlockFormat.LineHeightTypes.FixedHeight.value if hasattr(
+                                QTextBlockFormat.LineHeightTypes, "FixedHeight") else 3
+                        except Exception:
+                            FH = 3
                         if t == "code":
-                            need.setTopMargin(1)
-                            need.setBottomMargin(1)
+                            need.setTopMargin(0)
+                            need.setBottomMargin(0)
+                            need.setLineHeight(22, FH)
                         elif t == "code_fence_start":
                             need.setTopMargin(10)
                             need.setBottomMargin(0)
@@ -1747,6 +1750,8 @@ class MarkdownEditor(QWidget):
             if self._cached_bfm is None:
                 MIN = QTextBlockFormat.LineHeightTypes.MinimumHeight.value if hasattr(
                     QTextBlockFormat.LineHeightTypes, "MinimumHeight") else 2
+                FH = QTextBlockFormat.LineHeightTypes.FixedHeight.value if hasattr(
+                    QTextBlockFormat.LineHeightTypes, "FixedHeight") else 3
                 presets = {
                     "h1":               (42, MIN, 22, 14),
                     "h2":               (36, MIN, 18, 12),
@@ -1758,7 +1763,7 @@ class MarkdownEditor(QWidget):
                     "ul":               (25, MIN,  4,  3),
                     "ol":               (25, MIN,  4,  3),
                     "quote":            (26, MIN,  6,  6),
-                    "code":             (24, MIN,  1,  1),
+                    "code":             (22, FH,   0,  0),
                     "code_fence_start": (18, MIN, 10,  0),
                     "code_fence_end":   (18, MIN,  0, 10),
                 }
