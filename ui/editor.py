@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
     QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect,
     QColorDialog, QDialog, QSpinBox, QAbstractSpinBox, QMenu,
-    QFileDialog, QSlider, QDialogButtonBox, QLayout, QLayoutItem
+    QFileDialog, QSlider, QDialogButtonBox, QLayout, QLayoutItem, QPushButton
 )
 try:
     from pygments import lexers, styles, token as pyg_token
@@ -646,6 +646,7 @@ class MarkdownMixedHighlighter(QSyntaxHighlighter):
 
 class _MixedTextEdit(QTextEdit):
     paste_image_requested = pyqtSignal(QImage)
+    image_clicked = pyqtSignal(str)  # 图片绝对路径
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -977,6 +978,22 @@ class _MixedTextEdit(QTextEdit):
             finally:
                 painter.end()
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            cursor = self.cursorForPosition(event.pos())
+            fmt = cursor.charFormat()
+            if fmt.isImageFormat():
+                img_fmt = fmt.toImageFormat()
+                name = img_fmt.name()
+                if name:
+                    # 优先用 property 1001 保存的原始路径
+                    raw = fmt.property(1001)
+                    path = raw if isinstance(raw, str) and raw else name
+                    self.image_clicked.emit(path)
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
+
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         if source.hasImage():
             return True
@@ -989,6 +1006,205 @@ class _MixedTextEdit(QTextEdit):
                 self.paste_image_requested.emit(img)
                 return
         super().insertFromMimeData(source)
+
+
+class _ImageCanvas(QWidget):
+    """可缩放、可拖拽的图片画布"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pixmap = None
+        self._scale = 1.0
+        self._offset = QPointF(0, 0)
+        self._dragging = False
+        self._drag_start = QPointF()
+        self._offset_start = QPointF()
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def set_pixmap(self, pm: QPixmap):
+        self._pixmap = pm
+        self._scale = 1.0
+        self._offset = QPointF(0, 0)
+        self.fit_to_window()
+        self.update()
+
+    def fit_to_window(self):
+        if self._pixmap is None or self._pixmap.isNull():
+            return
+        pw = self._pixmap.width()
+        ph = self._pixmap.height()
+        cw = self.width()
+        ch = self.height()
+        if pw <= 0 or ph <= 0 or cw <= 0 or ch <= 0:
+            return
+        sx = cw / float(pw)
+        sy = ch / float(ph)
+        self._scale = min(sx, sy)
+        self._offset = QPointF(0, 0)
+        self.update()
+
+    def actual_size(self):
+        self._scale = 1.0
+        self._offset = QPointF(0, 0)
+        self.update()
+
+    def zoom_by(self, factor: float):
+        if self._pixmap is None or self._pixmap.isNull():
+            return
+        new_scale = self._scale * factor
+        new_scale = max(0.05, min(20.0, new_scale))
+        self._scale = new_scale
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.fillRect(self.rect(), QColor(30, 30, 30))
+        if self._pixmap is None or self._pixmap.isNull():
+            painter.setPen(QColor(180, 180, 180))
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "无法加载图片")
+            return
+        pm = self._pixmap
+        dw = int(pm.width() * self._scale)
+        dh = int(pm.height() * self._scale)
+        cx = self.width() / 2.0 + self._offset.x()
+        cy = self.height() / 2.0 + self._offset.y()
+        painter.drawPixmap(QRectF(int(cx - dw / 2), int(cy - dh / 2), dw, dh), pm,
+                           QRectF(0, 0, pm.width(), pm.height()))
+
+    def wheelEvent(self, event):
+        if self._pixmap is None or self._pixmap.isNull():
+            return
+        delta = event.angleDelta().y()
+        if delta > 0:
+            factor = 1.15
+        elif delta < 0:
+            factor = 1.0 / 1.15
+        else:
+            return
+        self.zoom_by(factor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = True
+            self._drag_start = QPointF(event.position())
+            self._offset_start = QPointF(self._offset)
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._dragging:
+            pos = QPointF(event.position())
+            self._offset = QPointF(
+                self._offset_start.x() + (pos.x() - self._drag_start.x()),
+                self._offset_start.y() + (pos.y() - self._drag_start.y())
+            )
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._dragging = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
+
+class ImageViewerDialog(QDialog):
+    """图片查看器：支持滚轮缩放、拖拽平移、适应窗口、原始大小"""
+
+    def __init__(self, image_path: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("图片查看器")
+        self.resize(900, 650)
+        self.setModal(True)
+        self._path = image_path
+        pm = QPixmap(image_path)
+        if pm.isNull():
+            self._pixmap = None
+        else:
+            self._pixmap = pm
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._canvas = _ImageCanvas(self)
+        layout.addWidget(self._canvas, 1)
+
+        # 底部工具栏
+        toolbar = QFrame(self)
+        toolbar.setStyleSheet("QFrame{background:#3a3a3a;} QPushButton{color:#ddd;background:#555;border:none;padding:6px 14px;border-radius:4px;} QPushButton:hover{background:#666;} QLabel{color:#aaa;}")
+        tb_layout = QHBoxLayout(toolbar)
+        tb_layout.setContentsMargins(8, 4, 8, 4)
+        tb_layout.setSpacing(6)
+
+        btn_zoom_out = QPushButton("−")
+        btn_zoom_out.setFixedWidth(36)
+        btn_zoom_out.clicked.connect(lambda: self._canvas.zoom_by(1.0 / 1.25))
+        tb_layout.addWidget(btn_zoom_out)
+
+        self._scale_label = QLabel("100%")
+        self._scale_label.setFixedWidth(60)
+        self._scale_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tb_layout.addWidget(self._scale_label)
+
+        btn_zoom_in = QPushButton("+")
+        btn_zoom_in.setFixedWidth(36)
+        btn_zoom_in.clicked.connect(lambda: self._canvas.zoom_by(1.25))
+        tb_layout.addWidget(btn_zoom_in)
+
+        tb_layout.addSpacing(10)
+
+        btn_fit = QPushButton("适应窗口")
+        btn_fit.clicked.connect(self._fit)
+        tb_layout.addWidget(btn_fit)
+
+        btn_actual = QPushButton("实际大小")
+        btn_actual.clicked.connect(self._actual)
+        tb_layout.addWidget(btn_actual)
+
+        tb_layout.addStretch()
+
+        # 用文件名做标题
+        fname = os.path.basename(image_path)
+        self._title_label = QLabel(fname)
+        self._title_label.setStyleSheet("color:#888;")
+        tb_layout.addWidget(self._title_label)
+
+        layout.addWidget(toolbar)
+
+        if self._pixmap is not None:
+            self._canvas.set_pixmap(self._pixmap)
+
+        # 定时更新缩放百分比显示
+        self._scale_timer = QTimer(self)
+        self._scale_timer.timeout.connect(self._update_scale_label)
+        self._scale_timer.start(100)
+
+    def _fit(self):
+        self._canvas.fit_to_window()
+
+    def _actual(self):
+        self._canvas.actual_size()
+
+    def _update_scale_label(self):
+        s = int(self._canvas._scale * 100)
+        self._scale_label.setText(f"{s}%")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # 窗口大小变化时不强制重置，让用户自由
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+        elif event.key() == Qt.Key.Key_Plus or event.key() == Qt.Key.Key_Equal:
+            self._canvas.zoom_by(1.25)
+        elif event.key() == Qt.Key.Key_Minus:
+            self._canvas.zoom_by(1.0 / 1.25)
+        elif event.key() == Qt.Key.Key_0:
+            self._canvas.fit_to_window()
+        else:
+            super().keyPressEvent(event)
 
 
 class MarkdownEditor(QWidget):
@@ -1015,6 +1231,7 @@ class MarkdownEditor(QWidget):
         self.text_color_btn.clicked.connect(self._choose_text_color)
         self.highlight_color_btn.clicked.connect(self._choose_highlight_color)
         self.edit.paste_image_requested.connect(self._handle_paste_image)
+        self.edit.image_clicked.connect(self._open_image_viewer)
         self.bg_image_btn.clicked.connect(self._show_background_menu)
         self._app_settings = load_settings()
 
@@ -1598,6 +1815,14 @@ class MarkdownEditor(QWidget):
         self.edit.setTextCursor(cursor)
         self._render_images_in_doc()
         self._on_any_changed()
+
+    def _open_image_viewer(self, path: str):
+        """点击文档中的图片 → 打开图片查看器"""
+        abs_path = self._resolve_image_path(path)
+        if not abs_path or not os.path.exists(abs_path):
+            abs_path = path
+        dlg = ImageViewerDialog(abs_path, self)
+        dlg.exec()
 
     def _show_background_menu(self):
         menu = QMenu(self)
