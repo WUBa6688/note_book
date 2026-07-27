@@ -1190,9 +1190,10 @@ class ImageViewerDialog(QDialog):
         s = int(self._canvas._scale * 100)
         self._scale_label.setText(f"{s}%")
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        # 窗口大小变化时不强制重置，让用户自由
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 对话框首次显示时画布才有真实尺寸，此时再做一次适应
+        QTimer.singleShot(0, self._canvas.fit_to_window)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
