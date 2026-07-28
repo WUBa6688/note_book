@@ -5,7 +5,7 @@ import uuid
 import random
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect, QPoint
 from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
@@ -980,19 +980,34 @@ class _MixedTextEdit(QTextEdit):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            cursor = self.cursorForPosition(event.pos())
-            fmt = cursor.charFormat()
-            if fmt.isImageFormat():
-                img_fmt = fmt.toImageFormat()
-                name = img_fmt.name()
-                if name:
-                    # 优先用 property 1001 保存的原始路径
-                    raw = fmt.property(1001)
-                    path = raw if isinstance(raw, str) and raw else name
-                    self.image_clicked.emit(path)
-                    event.accept()
-                    return
+            clicked_image_path = self._find_image_at_pos(event.pos())
+            if clicked_image_path:
+                self.image_clicked.emit(clicked_image_path)
+                event.accept()
+                return
         super().mousePressEvent(event)
+
+    def _find_image_at_pos(self, pos: QPoint) -> Optional[str]:
+        """检测点击位置是否在图片上，返回图片路径"""
+        cursor = self.cursorForPosition(pos)
+        fmt = cursor.charFormat()
+
+        if fmt.isImageFormat():
+            img_fmt = fmt.toImageFormat()
+            raw = img_fmt.property(1001)
+            name = img_fmt.name()
+            return raw if isinstance(raw, str) and raw else name
+
+        cursor2 = self.cursorForPosition(pos)
+        cursor2.movePosition(QTextCursor.MoveOperation.Left)
+        fmt2 = cursor2.charFormat()
+        if fmt2.isImageFormat():
+            img_fmt = fmt2.toImageFormat()
+            raw = img_fmt.property(1001)
+            name = img_fmt.name()
+            return raw if isinstance(raw, str) and raw else name
+
+        return None
 
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         if source.hasImage():
@@ -1763,7 +1778,7 @@ class MarkdownEditor(QWidget):
                     img_fmt.setWidth(img.width() * ratio)
                     img_fmt.setHeight(img.height() * ratio)
                 sel.insertImage(img_fmt)
-                offset += m.end() - m.start() + 1
+                offset += m.end() - m.start() - 1
             if not cursor.movePosition(QTextCursor.MoveOperation.NextBlock):
                 break
 
@@ -1812,7 +1827,7 @@ class MarkdownEditor(QWidget):
             rel_path = f"./assets/_unsaved_images/{filename}"
         alt_name = f"粘贴-{ts}"
         cursor = self.edit.textCursor()
-        cursor.insertText(f"\n![{alt_name}]({rel_path})\n")
+        cursor.insertText(f"\n\n![{alt_name}]({rel_path})\n\n")
         self.edit.setTextCursor(cursor)
         self._render_images_in_doc()
         self._on_any_changed()
@@ -2089,6 +2104,8 @@ class MarkdownEditor(QWidget):
 
         self.title_edit.blockSignals(True)
         self.edit.blockSignals(True)
+        self._highlighter.code_block_info.clear()
+        self._highlighter.block_meta.clear()
         self.title_edit.setText(title or "")
         self.edit.setPlainText(content or "")
         self._last_block_types.clear()
