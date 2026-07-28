@@ -1126,13 +1126,17 @@ class _ImageCanvas(QWidget):
 class ImageViewerDialog(QDialog):
     """图片查看器：支持滚轮缩放、拖拽平移、适应窗口、原始大小"""
 
-    def __init__(self, image_path: str, parent=None):
+    def __init__(self, image_path: str, parent=None, all_images=None, current_idx=0):
         super().__init__(parent)
         self.setWindowTitle("图片查看器")
         self.resize(900, 650)
         self.setModal(True)
-        self._path = image_path
-        pm = QPixmap(image_path)
+
+        self._all_images = all_images if all_images else [image_path]
+        self._current_idx = current_idx
+        self._path = self._all_images[self._current_idx]
+
+        pm = QPixmap(self._path)
         if pm.isNull():
             self._pixmap = None
         else:
@@ -1142,10 +1146,31 @@ class ImageViewerDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._canvas = _ImageCanvas(self)
-        layout.addWidget(self._canvas, 1)
+        canvas_frame = QFrame(self)
+        canvas_frame.setStyleSheet("background:#1a1a1a;")
+        canvas_layout = QVBoxLayout(canvas_frame)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setSpacing(0)
 
-        # 底部工具栏
+        self._canvas = _ImageCanvas(self)
+        canvas_layout.addWidget(self._canvas, 1)
+
+        self._btn_prev = QPushButton("◀", self)
+        self._btn_prev.setFixedSize(48, 48)
+        self._btn_prev.setStyleSheet("QPushButton{background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:24px;font-size:24px;} QPushButton:hover{background:rgba(0,0,0,0.7);}")
+        self._btn_prev.clicked.connect(self._prev_image)
+        self._btn_prev.move(20, self.height() // 2 - 24)
+        self._btn_prev.setVisible(len(self._all_images) > 1)
+
+        self._btn_next = QPushButton("▶", self)
+        self._btn_next.setFixedSize(48, 48)
+        self._btn_next.setStyleSheet("QPushButton{background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:24px;font-size:24px;} QPushButton:hover{background:rgba(0,0,0,0.7);}")
+        self._btn_next.clicked.connect(self._next_image)
+        self._btn_next.move(self.width() - 68, self.height() // 2 - 24)
+        self._btn_next.setVisible(len(self._all_images) > 1)
+
+        layout.addWidget(canvas_frame, 1)
+
         toolbar = QFrame(self)
         toolbar.setStyleSheet("QFrame{background:#3a3a3a;} QPushButton{color:#ddd;background:#555;border:none;padding:6px 14px;border-radius:4px;} QPushButton:hover{background:#666;} QLabel{color:#aaa;}")
         tb_layout = QHBoxLayout(toolbar)
@@ -1179,8 +1204,13 @@ class ImageViewerDialog(QDialog):
 
         tb_layout.addStretch()
 
-        # 用文件名做标题
-        fname = os.path.basename(image_path)
+        if len(self._all_images) > 1:
+            self._index_label = QLabel(f"{self._current_idx + 1}/{len(self._all_images)}")
+            self._index_label.setFixedWidth(80)
+            self._index_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            tb_layout.addWidget(self._index_label)
+
+        fname = os.path.basename(self._path)
         self._title_label = QLabel(fname)
         self._title_label.setStyleSheet("color:#888;")
         tb_layout.addWidget(self._title_label)
@@ -1190,7 +1220,6 @@ class ImageViewerDialog(QDialog):
         if self._pixmap is not None:
             self._canvas.set_pixmap(self._pixmap)
 
-        # 定时更新缩放百分比显示
         self._scale_timer = QTimer(self)
         self._scale_timer.timeout.connect(self._update_scale_label)
         self._scale_timer.start(100)
@@ -1207,8 +1236,41 @@ class ImageViewerDialog(QDialog):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # 对话框首次显示时画布才有真实尺寸，此时再做一次适应
         QTimer.singleShot(0, self._canvas.fit_to_window)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if len(self._all_images) > 1:
+            self._btn_prev.move(20, self.height() // 2 - 24)
+            self._btn_next.move(self.width() - 68, self.height() // 2 - 24)
+
+    def _prev_image(self):
+        if len(self._all_images) <= 1:
+            return
+        self._current_idx = (self._current_idx - 1) % len(self._all_images)
+        self._load_image()
+
+    def _next_image(self):
+        if len(self._all_images) <= 1:
+            return
+        self._current_idx = (self._current_idx + 1) % len(self._all_images)
+        self._load_image()
+
+    def _load_image(self):
+        self._path = self._all_images[self._current_idx]
+        pm = QPixmap(self._path)
+        if pm.isNull():
+            self._pixmap = None
+        else:
+            self._pixmap = pm
+            self._canvas.set_pixmap(self._pixmap)
+            QTimer.singleShot(0, self._canvas.fit_to_window)
+
+        fname = os.path.basename(self._path)
+        self._title_label.setText(fname)
+
+        if hasattr(self, '_index_label'):
+            self._index_label.setText(f"{self._current_idx + 1}/{len(self._all_images)}")
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -1219,6 +1281,10 @@ class ImageViewerDialog(QDialog):
             self._canvas.zoom_by(1.0 / 1.25)
         elif event.key() == Qt.Key.Key_0:
             self._canvas.fit_to_window()
+        elif event.key() == Qt.Key.Key_Left:
+            self._prev_image()
+        elif event.key() == Qt.Key.Key_Right:
+            self._next_image()
         else:
             super().keyPressEvent(event)
 
@@ -1834,11 +1900,36 @@ class MarkdownEditor(QWidget):
 
     def _open_image_viewer(self, path: str):
         """点击文档中的图片 → 打开图片查看器"""
+        all_images = self._collect_all_images()
         abs_path = self._resolve_image_path(path)
         if not abs_path or not os.path.exists(abs_path):
             abs_path = path
-        dlg = ImageViewerDialog(abs_path, self)
+        idx = all_images.index(abs_path) if abs_path in all_images else 0
+        dlg = ImageViewerDialog(abs_path, self, all_images, idx)
         dlg.exec()
+
+    def _collect_all_images(self) -> list:
+        """收集文档中所有图片的绝对路径"""
+        result = []
+        doc = self.edit.document()
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                frag = it.fragment()
+                if frag.isValid() and frag.charFormat().isImageFormat():
+                    img_fmt = frag.charFormat().toImageFormat()
+                    raw = img_fmt.property(1001)
+                    name = img_fmt.name()
+                    path = raw if isinstance(raw, str) and raw else name
+                    abs_path = self._resolve_image_path(path)
+                    if abs_path and os.path.exists(abs_path):
+                        result.append(abs_path)
+                    elif os.path.exists(path):
+                        result.append(path)
+                it += 1
+            block = block.next()
+        return result
 
     def _show_background_menu(self):
         menu = QMenu(self)
