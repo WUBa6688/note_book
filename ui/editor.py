@@ -1129,7 +1129,9 @@ class ImageViewerDialog(QDialog):
     def __init__(self, image_path: str, parent=None, all_images=None, current_idx=0):
         super().__init__(parent)
         self.setWindowTitle("图片查看器")
-        self.setModal(True)
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowTitleHint | 
+                           Qt.WindowType.WindowMinMaxButtonsHint | Qt.WindowType.WindowCloseButtonHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
         self._all_images = all_images if all_images else [image_path]
         self._current_idx = current_idx
@@ -1147,97 +1149,104 @@ class ImageViewerDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # 顶部工具栏
+        # 顶部工具栏 - 渐变色背景
         toolbar = QFrame(self)
-        toolbar.setFixedHeight(48)
+        toolbar.setFixedHeight(52)
         toolbar.setStyleSheet("""
-            QFrame { background-color: #f0f0f0; border-bottom: 1px solid #ddd; }
-            QPushButton { 
-                background: transparent; 
-                border: none; 
-                padding: 8px; 
-                border-radius: 4px;
-                color: #555;
-                font-size: 16px;
+            QFrame { 
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
+                    stop:0 #4a90d9, stop:0.5 #6a7bc4, stop:1 #8b5cf6);
+                border-bottom: 1px solid rgba(255,255,255,0.2);
             }
-            QPushButton:hover { background-color: #e0e0e0; }
-            QPushButton:pressed { background-color: #d0d0d0; }
-            QLabel { color: #666; font-size: 13px; padding-left: 8px; }
+            QPushButton { 
+                background: rgba(255,255,255,0.15); 
+                border: none; 
+                padding: 6px 10px; 
+                border-radius: 6px;
+                color: #fff;
+                font-size: 14px;
+            }
+            QPushButton:hover { background: rgba(255,255,255,0.25); }
+            QPushButton:pressed { background: rgba(255,255,255,0.35); }
+            QPushButton:disabled { opacity: 0.4; }
+            QLabel { color: rgba(255,255,255,0.9); font-size: 13px; }
         """)
         tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(8, 0, 8, 0)
-        tb_layout.setSpacing(4)
+        tb_layout.setContentsMargins(12, 0, 12, 0)
+        tb_layout.setSpacing(6)
 
         # 导航按钮
-        btn_prev = QPushButton("←")
-        btn_prev.setFixedSize(32, 32)
+        btn_prev = QPushButton("◀")
+        btn_prev.setFixedSize(36, 36)
+        btn_prev.setToolTip("上一张")
         btn_prev.clicked.connect(self._prev_image)
         btn_prev.setEnabled(len(self._all_images) > 1)
         tb_layout.addWidget(btn_prev)
 
-        btn_next = QPushButton("→")
-        btn_next.setFixedSize(32, 32)
+        btn_next = QPushButton("▶")
+        btn_next.setFixedSize(36, 36)
+        btn_next.setToolTip("下一张")
         btn_next.clicked.connect(self._next_image)
         btn_next.setEnabled(len(self._all_images) > 1)
         tb_layout.addWidget(btn_next)
 
-        tb_layout.addSpacing(8)
+        tb_layout.addSpacing(12)
 
         # 缩略图按钮
         btn_thumb = QPushButton("▦")
-        btn_thumb.setFixedSize(32, 32)
+        btn_thumb.setFixedSize(36, 36)
         btn_thumb.setToolTip("缩略图")
         tb_layout.addWidget(btn_thumb)
 
-        tb_layout.addSpacing(8)
+        tb_layout.addSpacing(12)
 
         # 旋转按钮
         btn_rotate_left = QPushButton("↺")
-        btn_rotate_left.setFixedSize(32, 32)
+        btn_rotate_left.setFixedSize(36, 36)
         btn_rotate_left.setToolTip("逆时针旋转")
         btn_rotate_left.clicked.connect(lambda: self._rotate(-90))
         tb_layout.addWidget(btn_rotate_left)
 
         btn_rotate_right = QPushButton("↻")
-        btn_rotate_right.setFixedSize(32, 32)
+        btn_rotate_right.setFixedSize(36, 36)
         btn_rotate_right.setToolTip("顺时针旋转")
         btn_rotate_right.clicked.connect(lambda: self._rotate(90))
         tb_layout.addWidget(btn_rotate_right)
 
-        tb_layout.addSpacing(8)
+        tb_layout.addSpacing(12)
 
         # 缩放按钮
         btn_zoom_out = QPushButton("−")
-        btn_zoom_out.setFixedSize(32, 32)
+        btn_zoom_out.setFixedSize(36, 36)
         btn_zoom_out.setToolTip("缩小")
         btn_zoom_out.clicked.connect(lambda: self._canvas.zoom_by(1.0 / 1.25))
         tb_layout.addWidget(btn_zoom_out)
 
         self._scale_label = QLabel("100%")
-        self._scale_label.setFixedWidth(56)
+        self._scale_label.setFixedWidth(60)
         self._scale_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tb_layout.addWidget(self._scale_label)
 
         btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedSize(32, 32)
+        btn_zoom_in.setFixedSize(36, 36)
         btn_zoom_in.setToolTip("放大")
         btn_zoom_in.clicked.connect(lambda: self._canvas.zoom_by(1.25))
         tb_layout.addWidget(btn_zoom_in)
 
-        tb_layout.addSpacing(8)
+        tb_layout.addSpacing(12)
 
         # 适应窗口
         btn_fit = QPushButton("⊡")
-        btn_fit.setFixedSize(32, 32)
+        btn_fit.setFixedSize(36, 36)
         btn_fit.setToolTip("适应窗口")
         btn_fit.clicked.connect(self._fit)
         tb_layout.addWidget(btn_fit)
 
-        tb_layout.addSpacing(8)
+        tb_layout.addSpacing(12)
 
         # 实际大小
-        btn_actual = QPushButton("◉")
-        btn_actual.setFixedSize(32, 32)
+        btn_actual = QPushButton("◎")
+        btn_actual.setFixedSize(36, 36)
         btn_actual.setToolTip("实际大小")
         btn_actual.clicked.connect(self._actual)
         tb_layout.addWidget(btn_actual)
@@ -1257,7 +1266,7 @@ class ImageViewerDialog(QDialog):
 
         # 主画布区域
         canvas_frame = QFrame(self)
-        canvas_frame.setStyleSheet("QFrame{background:#fff;}")
+        canvas_frame.setStyleSheet("QFrame{background:#f8f9fa;}")
         canvas_layout = QVBoxLayout(canvas_frame)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.setSpacing(0)
