@@ -10,7 +10,7 @@ from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
     QPixmap, QPainter, QIcon, QBrush, QPen, QImage, QTextImageFormat, QPalette,
-    QAction, QPainterPath, QFontMetrics
+    QAction, QPainterPath, QFontMetrics, QGuiApplication, QTransform
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
@@ -1129,7 +1129,6 @@ class ImageViewerDialog(QDialog):
     def __init__(self, image_path: str, parent=None, all_images=None, current_idx=0):
         super().__init__(parent)
         self.setWindowTitle("图片查看器")
-        self.resize(900, 650)
         self.setModal(True)
 
         self._all_images = all_images if all_images else [image_path]
@@ -1142,12 +1141,123 @@ class ImageViewerDialog(QDialog):
         else:
             self._pixmap = pm
 
+        self._rotation = 0
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        # 顶部工具栏
+        toolbar = QFrame(self)
+        toolbar.setFixedHeight(48)
+        toolbar.setStyleSheet("""
+            QFrame { background-color: #f0f0f0; border-bottom: 1px solid #ddd; }
+            QPushButton { 
+                background: transparent; 
+                border: none; 
+                padding: 8px; 
+                border-radius: 4px;
+                color: #555;
+                font-size: 16px;
+            }
+            QPushButton:hover { background-color: #e0e0e0; }
+            QPushButton:pressed { background-color: #d0d0d0; }
+            QLabel { color: #666; font-size: 13px; padding-left: 8px; }
+        """)
+        tb_layout = QHBoxLayout(toolbar)
+        tb_layout.setContentsMargins(8, 0, 8, 0)
+        tb_layout.setSpacing(4)
+
+        # 导航按钮
+        btn_prev = QPushButton("←")
+        btn_prev.setFixedSize(32, 32)
+        btn_prev.clicked.connect(self._prev_image)
+        btn_prev.setEnabled(len(self._all_images) > 1)
+        tb_layout.addWidget(btn_prev)
+
+        btn_next = QPushButton("→")
+        btn_next.setFixedSize(32, 32)
+        btn_next.clicked.connect(self._next_image)
+        btn_next.setEnabled(len(self._all_images) > 1)
+        tb_layout.addWidget(btn_next)
+
+        tb_layout.addSpacing(8)
+
+        # 缩略图按钮
+        btn_thumb = QPushButton("▦")
+        btn_thumb.setFixedSize(32, 32)
+        btn_thumb.setToolTip("缩略图")
+        tb_layout.addWidget(btn_thumb)
+
+        tb_layout.addSpacing(8)
+
+        # 旋转按钮
+        btn_rotate_left = QPushButton("↺")
+        btn_rotate_left.setFixedSize(32, 32)
+        btn_rotate_left.setToolTip("逆时针旋转")
+        btn_rotate_left.clicked.connect(lambda: self._rotate(-90))
+        tb_layout.addWidget(btn_rotate_left)
+
+        btn_rotate_right = QPushButton("↻")
+        btn_rotate_right.setFixedSize(32, 32)
+        btn_rotate_right.setToolTip("顺时针旋转")
+        btn_rotate_right.clicked.connect(lambda: self._rotate(90))
+        tb_layout.addWidget(btn_rotate_right)
+
+        tb_layout.addSpacing(8)
+
+        # 缩放按钮
+        btn_zoom_out = QPushButton("−")
+        btn_zoom_out.setFixedSize(32, 32)
+        btn_zoom_out.setToolTip("缩小")
+        btn_zoom_out.clicked.connect(lambda: self._canvas.zoom_by(1.0 / 1.25))
+        tb_layout.addWidget(btn_zoom_out)
+
+        self._scale_label = QLabel("100%")
+        self._scale_label.setFixedWidth(56)
+        self._scale_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tb_layout.addWidget(self._scale_label)
+
+        btn_zoom_in = QPushButton("+")
+        btn_zoom_in.setFixedSize(32, 32)
+        btn_zoom_in.setToolTip("放大")
+        btn_zoom_in.clicked.connect(lambda: self._canvas.zoom_by(1.25))
+        tb_layout.addWidget(btn_zoom_in)
+
+        tb_layout.addSpacing(8)
+
+        # 适应窗口
+        btn_fit = QPushButton("⊡")
+        btn_fit.setFixedSize(32, 32)
+        btn_fit.setToolTip("适应窗口")
+        btn_fit.clicked.connect(self._fit)
+        tb_layout.addWidget(btn_fit)
+
+        tb_layout.addSpacing(8)
+
+        # 实际大小
+        btn_actual = QPushButton("◉")
+        btn_actual.setFixedSize(32, 32)
+        btn_actual.setToolTip("实际大小")
+        btn_actual.clicked.connect(self._actual)
+        tb_layout.addWidget(btn_actual)
+
+        tb_layout.addStretch()
+
+        # 图片信息
+        if len(self._all_images) > 1:
+            self._index_label = QLabel(f"{self._current_idx + 1}/{len(self._all_images)}")
+            tb_layout.addWidget(self._index_label)
+
+        fname = os.path.basename(self._path)
+        self._title_label = QLabel(fname)
+        tb_layout.addWidget(self._title_label)
+
+        layout.addWidget(toolbar)
+
+        # 主画布区域
         canvas_frame = QFrame(self)
-        canvas_frame.setStyleSheet("background:#1a1a1a;")
+        canvas_frame.setStyleSheet("QFrame{background:#fff;}")
         canvas_layout = QVBoxLayout(canvas_frame)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.setSpacing(0)
@@ -1155,67 +1265,7 @@ class ImageViewerDialog(QDialog):
         self._canvas = _ImageCanvas(self)
         canvas_layout.addWidget(self._canvas, 1)
 
-        self._btn_prev = QPushButton("◀", self)
-        self._btn_prev.setFixedSize(48, 48)
-        self._btn_prev.setStyleSheet("QPushButton{background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:24px;font-size:24px;} QPushButton:hover{background:rgba(0,0,0,0.7);}")
-        self._btn_prev.clicked.connect(self._prev_image)
-        self._btn_prev.move(20, self.height() // 2 - 24)
-        self._btn_prev.setVisible(len(self._all_images) > 1)
-
-        self._btn_next = QPushButton("▶", self)
-        self._btn_next.setFixedSize(48, 48)
-        self._btn_next.setStyleSheet("QPushButton{background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:24px;font-size:24px;} QPushButton:hover{background:rgba(0,0,0,0.7);}")
-        self._btn_next.clicked.connect(self._next_image)
-        self._btn_next.move(self.width() - 68, self.height() // 2 - 24)
-        self._btn_next.setVisible(len(self._all_images) > 1)
-
         layout.addWidget(canvas_frame, 1)
-
-        toolbar = QFrame(self)
-        toolbar.setStyleSheet("QFrame{background:#3a3a3a;} QPushButton{color:#ddd;background:#555;border:none;padding:6px 14px;border-radius:4px;} QPushButton:hover{background:#666;} QLabel{color:#aaa;}")
-        tb_layout = QHBoxLayout(toolbar)
-        tb_layout.setContentsMargins(8, 4, 8, 4)
-        tb_layout.setSpacing(6)
-
-        btn_zoom_out = QPushButton("−")
-        btn_zoom_out.setFixedWidth(36)
-        btn_zoom_out.clicked.connect(lambda: self._canvas.zoom_by(1.0 / 1.25))
-        tb_layout.addWidget(btn_zoom_out)
-
-        self._scale_label = QLabel("100%")
-        self._scale_label.setFixedWidth(60)
-        self._scale_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tb_layout.addWidget(self._scale_label)
-
-        btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedWidth(36)
-        btn_zoom_in.clicked.connect(lambda: self._canvas.zoom_by(1.25))
-        tb_layout.addWidget(btn_zoom_in)
-
-        tb_layout.addSpacing(10)
-
-        btn_fit = QPushButton("适应窗口")
-        btn_fit.clicked.connect(self._fit)
-        tb_layout.addWidget(btn_fit)
-
-        btn_actual = QPushButton("实际大小")
-        btn_actual.clicked.connect(self._actual)
-        tb_layout.addWidget(btn_actual)
-
-        tb_layout.addStretch()
-
-        if len(self._all_images) > 1:
-            self._index_label = QLabel(f"{self._current_idx + 1}/{len(self._all_images)}")
-            self._index_label.setFixedWidth(80)
-            self._index_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            tb_layout.addWidget(self._index_label)
-
-        fname = os.path.basename(self._path)
-        self._title_label = QLabel(fname)
-        self._title_label.setStyleSheet("color:#888;")
-        tb_layout.addWidget(self._title_label)
-
-        layout.addWidget(toolbar)
 
         if self._pixmap is not None:
             self._canvas.set_pixmap(self._pixmap)
@@ -1224,11 +1274,24 @@ class ImageViewerDialog(QDialog):
         self._scale_timer.timeout.connect(self._update_scale_label)
         self._scale_timer.start(100)
 
+        screen_geo = QGuiApplication.primaryScreen().availableGeometry()
+        w = min(screen_geo.width() * 0.85, 1200)
+        h = min(screen_geo.height() * 0.85, 800)
+        self.resize(int(w), int(h))
+        self.move((screen_geo.width() - w) // 2, (screen_geo.height() - h) // 2)
+
     def _fit(self):
         self._canvas.fit_to_window()
 
     def _actual(self):
         self._canvas.actual_size()
+
+    def _rotate(self, angle):
+        self._rotation = (self._rotation + angle) % 360
+        if self._pixmap:
+            transform = QTransform().rotate(self._rotation)
+            self._canvas.set_pixmap(self._pixmap.transformed(transform))
+            QTimer.singleShot(0, self._canvas.fit_to_window)
 
     def _update_scale_label(self):
         s = int(self._canvas._scale * 100)
@@ -1238,21 +1301,17 @@ class ImageViewerDialog(QDialog):
         super().showEvent(event)
         QTimer.singleShot(0, self._canvas.fit_to_window)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if len(self._all_images) > 1:
-            self._btn_prev.move(20, self.height() // 2 - 24)
-            self._btn_next.move(self.width() - 68, self.height() // 2 - 24)
-
     def _prev_image(self):
         if len(self._all_images) <= 1:
             return
+        self._rotation = 0
         self._current_idx = (self._current_idx - 1) % len(self._all_images)
         self._load_image()
 
     def _next_image(self):
         if len(self._all_images) <= 1:
             return
+        self._rotation = 0
         self._current_idx = (self._current_idx + 1) % len(self._all_images)
         self._load_image()
 
