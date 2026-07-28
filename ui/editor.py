@@ -1131,6 +1131,7 @@ class ImageViewerDialog(QDialog):
         self.setWindowTitle("图片查看器")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowTitleHint | 
                            Qt.WindowType.WindowMinMaxButtonsHint | Qt.WindowType.WindowCloseButtonHint)
+        self.setWindowModality(Qt.WindowModality.NonModal)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
         self._all_images = all_images if all_images else [image_path]
@@ -1155,8 +1156,8 @@ class ImageViewerDialog(QDialog):
         toolbar.setStyleSheet("""
             QFrame { 
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
-                    stop:0 #4a90d9, stop:0.5 #6a7bc4, stop:1 #8b5cf6);
-                border-bottom: 1px solid rgba(255,255,255,0.2);
+                    stop:0 #5c6a7d, stop:0.5 #6d7a8e, stop:1 #7d8a9e);
+                border-bottom: 1px solid rgba(255,255,255,0.15);
             }
             QPushButton { 
                 background: rgba(255,255,255,0.15); 
@@ -1261,6 +1262,15 @@ class ImageViewerDialog(QDialog):
         fname = os.path.basename(self._path)
         self._title_label = QLabel(fname)
         tb_layout.addWidget(self._title_label)
+
+        tb_layout.addSpacing(8)
+
+        # 最小化按钮
+        btn_minimize = QPushButton("−")
+        btn_minimize.setFixedSize(36, 36)
+        btn_minimize.setToolTip("最小化")
+        btn_minimize.clicked.connect(self.showMinimized)
+        tb_layout.addWidget(btn_minimize)
 
         layout.addWidget(toolbar)
 
@@ -1974,7 +1984,7 @@ class MarkdownEditor(QWidget):
             abs_path = path
         idx = all_images.index(abs_path) if abs_path in all_images else 0
         dlg = ImageViewerDialog(abs_path, self, all_images, idx)
-        dlg.exec()
+        dlg.show()
 
     def _collect_all_images(self) -> list:
         """收集文档中所有图片的绝对路径"""
