@@ -5,7 +5,7 @@ import uuid
 import random
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect, QPoint
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect, QPoint, QEvent
 from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
@@ -1172,6 +1172,12 @@ class ImageViewerDialog(QDialog):
 
         self._pinned = False
 
+        # 获取主窗口引用，监听其关闭事件以联动关闭图片查看器
+        self._main_window = parent.window() if parent else None
+        if self._main_window:
+            self._main_window.installEventFilter(self)
+            self._main_window.destroyed.connect(self.close)
+
         self._all_images = all_images if all_images else [image_path]
         self._current_idx = current_idx
         self._path = self._all_images[self._current_idx]
@@ -1459,6 +1465,21 @@ class ImageViewerDialog(QDialog):
             self._next_image()
         else:
             super().keyPressEvent(event)
+
+    def eventFilter(self, obj, event):
+        """监听主窗口关闭事件，联动关闭图片查看器"""
+        if obj == self._main_window:
+            if event.type() == QEvent.Type.Close:
+                self.close()
+        return super().eventFilter(obj, event)
+
+    def closeEvent(self, event):
+        """关闭时清理事件过滤器和信号连接"""
+        if self._main_window:
+            self._main_window.removeEventFilter(self)
+            self._main_window.destroyed.disconnect(self.close)
+            self._main_window = None
+        super().closeEvent(event)
 
 
 class MarkdownEditor(QWidget):
