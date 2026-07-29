@@ -1571,6 +1571,12 @@ class MarkdownEditor(QWidget):
         self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.save_btn.clicked.connect(self._do_notify_save)
 
+        self.export_btn = QToolButton()
+        self.export_btn.setText("📤  导出")
+        self.export_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.clicked.connect(self._export_note)
+
         meta_row.addWidget(self.save_status)
         meta_row.addWidget(self.dot)
         meta_row.addWidget(self.word_count)
@@ -1580,6 +1586,7 @@ class MarkdownEditor(QWidget):
         meta_row.addWidget(self.cat_label)
         meta_row.addWidget(self.category_combo)
         meta_row.addWidget(self.save_btn)
+        meta_row.addWidget(self.export_btn)
         hdr_layout.addLayout(meta_row)
 
         self.toolbar_container = QFrame()
@@ -1643,6 +1650,7 @@ class MarkdownEditor(QWidget):
         self.title_edit.setStyleSheet(qss["title_edit"])
         self.category_combo.setStyleSheet(qss["category_combo"])
         self.save_btn.setStyleSheet(qss["save_btn"])
+        self.export_btn.setStyleSheet(qss["export_btn"])
         self.toolbar_container.setStyleSheet(qss["toolbar_container"])
         self.edit.setStyleSheet(qss["textedit"])
         self.edit.set_theme_name(theme_name)
@@ -2071,6 +2079,27 @@ class MarkdownEditor(QWidget):
                 out_lines.append(line_text)
             block = block.next()
         return "\n".join(out_lines).rstrip()
+
+    def _export_note(self):
+        """导出笔记为 Markdown 文件"""
+        title = self.title_edit.text().strip() or "untitled"
+        md_content = self._extract_markdown_from_doc()
+        
+        default_name = f"{title}.md"
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "导出 Markdown", default_name, 
+            "Markdown 文件 (*.md);;所有文件 (*)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(md_content)
+                self.save_status.setText("✓ 导出成功")
+                self.save_status.setStyleSheet("color:#22c55e; font-size:12px; font-weight:500;")
+                QTimer.singleShot(2000, lambda: self._set_save_status("saved"))
+            except Exception as e:
+                QMessageBox.warning(self, "导出失败", f"无法导出文件：{str(e)}")
 
     def _handle_paste_image(self, img: QImage):
         if img.isNull():

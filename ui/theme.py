@@ -644,6 +644,26 @@ def get_editor_qss(t: Dict[str, Any]) -> Dict[str, str]:
                 stop:0 {t['primary_pressed_top']}, stop:1 {t['primary_pressed_bot']});
         }}
         """,
+        "export_btn": f"""
+        QToolButton {{
+            padding: 6px 14px;
+            border: none;
+            border-radius: 7px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #FFFFFF;
+            background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                stop:0 #10b981, stop:1 #059669);
+        }}
+        QToolButton:hover {{
+            background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                stop:0 #34d399, stop:1 #10b981);
+        }}
+        QToolButton:pressed {{
+            background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                stop:0 #059669, stop:1 #047857);
+        }}
+        """,
         "toolbar_container": f"""
         QFrame {{
             background: {t['toolbar_bg']};
