@@ -1213,19 +1213,19 @@ class ImageViewerDialog(QDialog):
         tb_layout.setSpacing(6)
 
         # 导航按钮
-        btn_prev = QPushButton("◀")
-        btn_prev.setFixedSize(36, 36)
-        btn_prev.setToolTip("上一张")
-        btn_prev.clicked.connect(self._prev_image)
-        btn_prev.setEnabled(len(self._all_images) > 1)
-        tb_layout.addWidget(btn_prev)
+        self.btn_prev = QPushButton("◀")
+        self.btn_prev.setFixedSize(36, 36)
+        self.btn_prev.setToolTip("上一张")
+        self.btn_prev.clicked.connect(self._prev_image)
+        self.btn_prev.setEnabled(len(self._all_images) > 1)
+        tb_layout.addWidget(self.btn_prev)
 
-        btn_next = QPushButton("▶")
-        btn_next.setFixedSize(36, 36)
-        btn_next.setToolTip("下一张")
-        btn_next.clicked.connect(self._next_image)
-        btn_next.setEnabled(len(self._all_images) > 1)
-        tb_layout.addWidget(btn_next)
+        self.btn_next = QPushButton("▶")
+        self.btn_next.setFixedSize(36, 36)
+        self.btn_next.setToolTip("下一张")
+        self.btn_next.clicked.connect(self._next_image)
+        self.btn_next.setEnabled(len(self._all_images) > 1)
+        tb_layout.addWidget(self.btn_next)
 
         tb_layout.addSpacing(12)
 
@@ -1386,6 +1386,15 @@ class ImageViewerDialog(QDialog):
         if hasattr(self, '_index_label'):
             self._index_label.setText(f"{self._current_idx + 1}/{len(self._all_images)}")
 
+    def load_images(self, all_images: list, current_idx: int):
+        """重新加载图片列表与当前索引（复用时调用）"""
+        self._all_images = all_images if all_images else []
+        self._current_idx = max(0, min(current_idx, len(self._all_images) - 1))
+        self._rotation = 0
+        self.btn_prev.setEnabled(len(self._all_images) > 1)
+        self.btn_next.setEnabled(len(self._all_images) > 1)
+        self._load_image()
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             self.close()
@@ -1416,6 +1425,7 @@ class MarkdownEditor(QWidget):
         self.current_theme = theme_name
         self._toolbar_btns = []
         self._toolbar_seps = []
+        self._image_viewer_dlg = None
         self._constructing = True
         self._build_ui()
 
@@ -2013,14 +2023,25 @@ class MarkdownEditor(QWidget):
         self._on_any_changed()
 
     def _open_image_viewer(self, path: str):
-        """点击文档中的图片 → 打开图片查看器"""
+        """点击文档中的图片 → 打开/复用图片查看器（单例模式）"""
         all_images = self._collect_all_images()
         abs_path = self._resolve_image_path(path)
         if not abs_path or not os.path.exists(abs_path):
             abs_path = path
         idx = all_images.index(abs_path) if abs_path in all_images else 0
-        dlg = ImageViewerDialog(abs_path, self, all_images, idx)
-        dlg.show()
+
+        if self._image_viewer_dlg is not None and self._image_viewer_dlg.isVisible():
+            self._image_viewer_dlg.load_images(all_images, idx)
+            self._image_viewer_dlg.raise_()
+            self._image_viewer_dlg.activateWindow()
+            self._image_viewer_dlg.showNormal()
+        else:
+            self._image_viewer_dlg = ImageViewerDialog(abs_path, self, all_images, idx)
+            self._image_viewer_dlg.destroyed.connect(self._on_image_viewer_destroyed)
+            self._image_viewer_dlg.show()
+
+    def _on_image_viewer_destroyed(self):
+        self._image_viewer_dlg = None
 
     def _collect_all_images(self) -> list:
         """收集文档中所有图片的绝对路径"""
