@@ -988,26 +988,62 @@ class _MixedTextEdit(QTextEdit):
         super().mousePressEvent(event)
 
     def _find_image_at_pos(self, pos: QPoint) -> Optional[str]:
-        """检测点击位置是否在图片上，返回图片路径"""
+        """精确检测点击位置是否在图片的视觉渲染区域内。
+
+        两级检测均通过几何验证：
+        1. 直接检测：cursorForPosition 指向图片格式 → 计算图片实际视觉矩形
+        2. 左移检测：点击位置左移一个字符（图片锚点通常在光标左侧）→ 同样计算矩形
+        只有点击点真正落在图片视觉范围内才触发查看器。
+        """
         cursor = self.cursorForPosition(pos)
         fmt = cursor.charFormat()
 
         if fmt.isImageFormat():
             img_fmt = fmt.toImageFormat()
-            raw = img_fmt.property(1001)
-            name = img_fmt.name()
-            return raw if isinstance(raw, str) and raw else name
+            if self._pos_in_image_rect(pos, cursor, img_fmt):
+                raw = img_fmt.property(1001)
+                name = img_fmt.name()
+                return raw if isinstance(raw, str) and raw else name
 
-        cursor2 = self.cursorForPosition(pos)
-        cursor2.movePosition(QTextCursor.MoveOperation.Left)
-        fmt2 = cursor2.charFormat()
-        if fmt2.isImageFormat():
-            img_fmt = fmt2.toImageFormat()
-            raw = img_fmt.property(1001)
-            name = img_fmt.name()
-            return raw if isinstance(raw, str) and raw else name
+        cursor_left = self.cursorForPosition(pos)
+        cursor_left.movePosition(QTextCursor.MoveOperation.Left)
+        fmt_left = cursor_left.charFormat()
+        if fmt_left.isImageFormat():
+            img_fmt = fmt_left.toImageFormat()
+            if self._pos_in_image_rect(pos, cursor_left, img_fmt):
+                raw = img_fmt.property(1001)
+                name = img_fmt.name()
+                return raw if isinstance(raw, str) and raw else name
 
         return None
+
+    def _pos_in_image_rect(self, pos: QPoint, cursor: QTextCursor,
+                            img_fmt: QTextImageFormat) -> bool:
+        """判断点击点是否在图片的实际视觉矩形内。
+
+        使用 QTextImageFormat 的 width/height（图片真实渲染尺寸）
+        结合 cursorRect 的左上角坐标构造精确的视觉矩形。
+        """
+        try:
+            base_rect = self.cursorRect(cursor)
+
+            img_width = img_fmt.width()
+            img_height = img_fmt.height()
+            if img_width <= 0 or img_height <= 0:
+                cursor_after = QTextCursor(cursor)
+                cursor_after.movePosition(QTextCursor.MoveOperation.Right)
+                after_rect = self.cursorRect(cursor_after)
+                if after_rect.y() == base_rect.y() and after_rect.x() > base_rect.x():
+                    img_width = after_rect.x() - base_rect.x()
+                else:
+                    img_width = base_rect.width()
+                img_height = max(base_rect.height(), img_height)
+
+            visual_rect = QRect(base_rect.x(), base_rect.y(),
+                                int(img_width), int(img_height))
+            return visual_rect.contains(pos)
+        except Exception:
+            return False
 
     def canInsertFromMimeData(self, source: QMimeData) -> bool:
         if source.hasImage():
