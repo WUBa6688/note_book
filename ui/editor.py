@@ -5,7 +5,7 @@ import uuid
 import random
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect, QPoint, QEvent
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect, QPoint
 from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
@@ -1163,17 +1163,14 @@ class ImageViewerDialog(QDialog):
     """图片查看器：支持滚轮缩放、拖拽平移、适应窗口、原始大小"""
 
     def __init__(self, image_path: str, parent=None, all_images=None, current_idx=0):
-        super().__init__(parent)
+        super().__init__(None)
         self.setWindowTitle("图片查看器")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowTitleHint | 
                            Qt.WindowType.WindowMinMaxButtonsHint | Qt.WindowType.WindowCloseButtonHint)
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
-        # 安装事件过滤器到父窗口：当主窗口被激活时自动最小化图片查看器
-        self._top_window = parent.window() if parent else None
-        if self._top_window:
-            self._top_window.installEventFilter(self)
+        self._pinned = False
 
         self._all_images = all_images if all_images else [image_path]
         self._current_idx = current_idx
@@ -1211,11 +1208,37 @@ class ImageViewerDialog(QDialog):
             QPushButton:hover { background: rgba(255,255,255,0.25); }
             QPushButton:pressed { background: rgba(255,255,255,0.35); }
             QPushButton:disabled { opacity: 0.4; }
+            QPushButton#btn_pin[pinned="true"] {
+                background: rgba(255,200,80,0.35);
+                color: #ffe89a;
+            }
+            QPushButton#btn_pin[pinned="true"]:hover {
+                background: rgba(255,200,80,0.50);
+            }
+            QPushButton#btn_pin[pinned="false"] {
+                background: rgba(255,255,255,0.10);
+                color: rgba(255,255,255,0.6);
+            }
+            QPushButton#btn_pin[pinned="false"]:hover {
+                background: rgba(255,255,255,0.25);
+                color: #fff;
+            }
             QLabel { color: rgba(255,255,255,0.9); font-size: 13px; }
         """)
         tb_layout = QHBoxLayout(toolbar)
         tb_layout.setContentsMargins(12, 0, 12, 0)
         tb_layout.setSpacing(6)
+
+        # 固定窗口按钮（默认未固定）
+        self.btn_pin = QPushButton("📍")
+        self.btn_pin.setObjectName("btn_pin")
+        self.btn_pin.setFixedSize(36, 36)
+        self.btn_pin.setToolTip("窗口未固定（点击固定窗口）")
+        self.btn_pin.setProperty("pinned", "false")
+        self.btn_pin.clicked.connect(self._toggle_pin)
+        tb_layout.addWidget(self.btn_pin)
+
+        tb_layout.addSpacing(6)
 
         # 导航按钮
         self.btn_prev = QPushButton("◀")
@@ -1400,6 +1423,27 @@ class ImageViewerDialog(QDialog):
         self.btn_next.setEnabled(len(self._all_images) > 1)
         self._load_image()
 
+    def _toggle_pin(self):
+        """切换窗口固定状态（置顶到所有窗口之上）"""
+        self._pinned = not self._pinned
+        geo = self.saveGeometry()
+
+        if self._pinned:
+            self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+            self.btn_pin.setText("📌")
+            self.btn_pin.setToolTip("窗口已固定（点击取消固定）")
+            self.btn_pin.setProperty("pinned", "true")
+        else:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowStaysOnTopHint)
+            self.btn_pin.setText("📍")
+            self.btn_pin.setToolTip("窗口未固定（点击固定窗口）")
+            self.btn_pin.setProperty("pinned", "false")
+
+        self.btn_pin.style().unpolish(self.btn_pin)
+        self.btn_pin.style().polish(self.btn_pin)
+        self.show()
+        self.restoreGeometry(geo)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             self.close()
@@ -1415,21 +1459,6 @@ class ImageViewerDialog(QDialog):
             self._next_image()
         else:
             super().keyPressEvent(event)
-
-    def eventFilter(self, obj, event):
-        """监听父窗口激活事件，自动最小化图片查看器"""
-        if obj == self._top_window:
-            if event.type() == QEvent.Type.WindowActivate:
-                if self.isVisible() and not self.isMinimized():
-                    self.showMinimized()
-        return super().eventFilter(obj, event)
-
-    def closeEvent(self, event):
-        """关闭时清理事件过滤器"""
-        if self._top_window:
-            self._top_window.removeEventFilter(self)
-            self._top_window = None
-        super().closeEvent(event)
 
 
 class MarkdownEditor(QWidget):
