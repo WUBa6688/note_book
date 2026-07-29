@@ -727,6 +727,48 @@ def get_editor_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QScrollBar::handle:horizontal:hover {{ background: {t['scrollbar_hover']}; }}
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
         """,
+        "outline_panel": f"""
+        QFrame#outline_panel {{
+            background: {t['surface_bg']};
+            border-left: 1px solid {t['border']};
+        }}
+        QTreeWidget {{
+            background: transparent;
+            border: none;
+            font-size: 12px;
+            color: {t['text_secondary']};
+            outline: 0;
+        }}
+        QTreeWidget::item {{
+            padding: 4px 8px;
+            border-radius: 4px;
+        }}
+        QTreeWidget::item:hover {{
+            background: {t['list_hover_bg']};
+            color: {t['text_primary']};
+        }}
+        QTreeWidget::item:selected {{
+            background: {t['list_hover_bg']};
+            color: {t['primary_text']};
+        }}
+        QToolButton#outline_toggle_btn {{
+            border: none;
+            border-radius: 5px;
+            padding: 4px 8px;
+            background: transparent;
+            font-size: 12px;
+            font-weight: 600;
+            color: {t['text_secondary']};
+        }}
+        QToolButton#outline_toggle_btn:hover {{
+            background: {t['list_hover_bg']};
+            color: {t['text_primary']};
+        }}
+        QToolButton#outline_toggle_btn:checked {{
+            background: {t['list_hover_bg']};
+            color: {t['primary_text']};
+        }}
+        """,
     }
 
 

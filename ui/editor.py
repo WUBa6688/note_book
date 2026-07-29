@@ -16,7 +16,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLineEdit, QLabel,
     QComboBox, QToolButton, QTextEdit, QSizePolicy, QGraphicsDropShadowEffect,
     QColorDialog, QDialog, QSpinBox, QAbstractSpinBox, QMenu,
-    QFileDialog, QSlider, QDialogButtonBox, QLayout, QLayoutItem, QPushButton
+    QFileDialog, QSlider, QDialogButtonBox, QLayout, QLayoutItem, QPushButton,
+    QSplitter, QTreeWidget, QTreeWidgetItem
 )
 try:
     from pygments import lexers, styles, token as pyg_token
@@ -1523,6 +1524,11 @@ class MarkdownEditor(QWidget):
         self._save_timer.timeout.connect(self._do_notify_save)
         self._dirty = False
 
+        self._outline_timer = QTimer(self)
+        self._outline_timer.setSingleShot(True)
+        self._outline_timer.setInterval(300)
+        self._outline_timer.timeout.connect(self._update_outline)
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -1587,6 +1593,15 @@ class MarkdownEditor(QWidget):
         meta_row.addWidget(self.category_combo)
         meta_row.addWidget(self.save_btn)
         meta_row.addWidget(self.export_btn)
+        self.outline_toggle_btn = QToolButton()
+        self.outline_toggle_btn.setObjectName("outline_toggle_btn")
+        self.outline_toggle_btn.setText("📋 大纲")
+        self.outline_toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.outline_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.outline_toggle_btn.setCheckable(True)
+        self.outline_toggle_btn.setChecked(True)
+        self.outline_toggle_btn.clicked.connect(self._toggle_outline)
+        meta_row.addWidget(self.outline_toggle_btn)
         hdr_layout.addLayout(meta_row)
 
         self.toolbar_container = QFrame()
@@ -1639,7 +1654,93 @@ class MarkdownEditor(QWidget):
         self.edit.textChanged.connect(self._on_src_changed)
         self._install_shortcuts()
 
-        root.addWidget(self.edit, 1)
+        # 用 QSplitter 包裹编辑器和大纲面板
+        self.content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.content_splitter.setChildrenCollapsible(False)
+        self.content_splitter.setHandleWidth(4)
+        self.content_splitter.addWidget(self.edit)
+        self.outline_panel = self._build_outline_panel()
+        self.content_splitter.addWidget(self.outline_panel)
+        self.content_splitter.setStretchFactor(0, 1)
+        self.content_splitter.setStretchFactor(1, 0)
+        self.content_splitter.setSizes([800, 220])
+
+        root.addWidget(self.content_splitter, 1)
+
+    def _build_outline_panel(self):
+        """构建大纲面板"""
+        panel = QFrame()
+        panel.setObjectName("outline_panel")
+        panel.setFixedWidth(220)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(12, 16, 12, 16)
+        layout.setSpacing(8)
+
+        title = QLabel("📋 大纲")
+        title.setStyleSheet("font-size:13px; font-weight:600;")
+        layout.addWidget(title)
+
+        self.outline_tree = QTreeWidget()
+        self.outline_tree.setHeaderHidden(True)
+        self.outline_tree.setRootIsDecorated(False)
+        self.outline_tree.itemClicked.connect(self._on_outline_clicked)
+        layout.addWidget(self.outline_tree, 1)
+
+        return panel
+
+    def _update_outline(self):
+        """从 block_meta 提取标题并更新大纲"""
+        self.outline_tree.clear()
+        hl = self._highlighter
+        if not hl or not hasattr(hl, 'block_meta'):
+            return
+
+        doc = self.edit.document()
+        block = doc.begin()
+        stack = []
+
+        while block.isValid():
+            block_num = block.blockNumber()
+            btype = hl.block_meta.get(block_num, "p")
+            if btype in ("h1", "h2", "h3", "h4", "h5", "h6"):
+                level = int(btype[1])
+                text = block.text().lstrip()
+                text = re.sub(r'^#{1,6}\s*', '', text).strip()
+                if not text:
+                    text = "(无标题)"
+
+                item = QTreeWidgetItem([text])
+                item.setData(0, Qt.ItemDataRole.UserRole, block.position())
+
+                while stack and stack[-1][0] >= level:
+                    stack.pop()
+
+                if stack:
+                    stack[-1][1].addChild(item)
+                else:
+                    self.outline_tree.addTopLevelItem(item)
+
+                stack.append((level, item))
+
+            block = block.next()
+
+        self.outline_tree.expandAll()
+
+    def _on_outline_clicked(self, item, column):
+        """点击大纲项跳转到对应位置"""
+        pos = item.data(0, Qt.ItemDataRole.UserRole)
+        if pos is not None:
+            cursor = self.edit.textCursor()
+            cursor.setPosition(pos)
+            self.edit.setTextCursor(cursor)
+            self.edit.setFocus()
+
+    def _toggle_outline(self):
+        """折叠/展开大纲面板"""
+        checked = self.outline_toggle_btn.isChecked()
+        self.outline_panel.setVisible(checked)
+        if checked:
+            self._update_outline()
 
     def apply_theme(self, theme_name: str, initial: bool = False):
         import sys as _sys
@@ -1652,6 +1753,8 @@ class MarkdownEditor(QWidget):
         self.save_btn.setStyleSheet(qss["save_btn"])
         self.export_btn.setStyleSheet(qss["export_btn"])
         self.toolbar_container.setStyleSheet(qss["toolbar_container"])
+        self.outline_panel.setStyleSheet(qss["outline_panel"])
+        self.outline_toggle_btn.setStyleSheet(qss["outline_panel"])
         self.edit.setStyleSheet(qss["textedit"])
         self.edit.set_theme_name(theme_name)
         self.save_status.setStyleSheet(
@@ -2245,6 +2348,7 @@ class MarkdownEditor(QWidget):
     def _on_src_changed(self):
         self._on_any_changed()
         self._apply_timer.start()
+        self._outline_timer.start()
 
     def _on_any_changed(self):
         self._set_save_status("saving")
@@ -2444,6 +2548,7 @@ class MarkdownEditor(QWidget):
         self._update_word_count()
         self._set_save_status("saved")
         self._dirty = False
+        self._update_outline()
 
     def update_categories(self, categories: List[Category], current_category_id):
         self.category_combo.blockSignals(True)
