@@ -5,7 +5,7 @@ import uuid
 import random
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect, QPoint
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSize, QMimeData, QRectF, QPointF, QRect, QPoint, QEvent
 from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
@@ -1170,6 +1170,11 @@ class ImageViewerDialog(QDialog):
         self.setWindowModality(Qt.WindowModality.NonModal)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
 
+        # 安装事件过滤器到父窗口：当主窗口被激活时自动最小化图片查看器
+        self._top_window = parent.window() if parent else None
+        if self._top_window:
+            self._top_window.installEventFilter(self)
+
         self._all_images = all_images if all_images else [image_path]
         self._current_idx = current_idx
         self._path = self._all_images[self._current_idx]
@@ -1410,6 +1415,21 @@ class ImageViewerDialog(QDialog):
             self._next_image()
         else:
             super().keyPressEvent(event)
+
+    def eventFilter(self, obj, event):
+        """监听父窗口激活事件，自动最小化图片查看器"""
+        if obj == self._top_window:
+            if event.type() == QEvent.Type.WindowActivate:
+                if self.isVisible() and not self.isMinimized():
+                    self.showMinimized()
+        return super().eventFilter(obj, event)
+
+    def closeEvent(self, event):
+        """关闭时清理事件过滤器"""
+        if self._top_window:
+            self._top_window.removeEventFilter(self)
+            self._top_window = None
+        super().closeEvent(event)
 
 
 class MarkdownEditor(QWidget):
