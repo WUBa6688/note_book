@@ -138,3 +138,40 @@ class ClearSceneCommand(QUndoCommand):
 
     def mergeWith(self, other: QUndoCommand) -> bool:
         return False
+
+
+class ModifyTextCommand(QUndoCommand):
+    """修改文字项内容（记录修改前后的文本、字体、颜色）。
+
+    用于 TextTool 的二次编辑撤销/重做。
+    """
+
+    def __init__(self, item, old_text, new_text, old_font=None, new_font=None,
+                 old_color=None, new_color=None, text="修改文字"):
+        super().__init__(text)
+        self.item = item
+        self.old_text = old_text
+        self.new_text = new_text
+        self.old_font = old_font
+        self.new_font = new_font
+        self.old_color = old_color
+        self.new_color = new_color
+
+    def undo(self):
+        if self.item is not None:
+            self.item.setPlainText(self.old_text)
+            if self.old_font is not None:
+                self.item.setFont(self.old_font)
+            if self.old_color is not None:
+                self.item.setDefaultTextColor(self.old_color)
+
+    def redo(self):
+        if self.item is not None:
+            self.item.setPlainText(self.new_text)
+            if self.new_font is not None:
+                self.item.setFont(self.new_font)
+            if self.new_color is not None:
+                self.item.setDefaultTextColor(self.new_color)
+
+    def mergeWith(self, other: QUndoCommand) -> bool:
+        return False

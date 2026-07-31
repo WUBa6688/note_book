@@ -34,6 +34,24 @@ from PyQt6.QtWidgets import (
 # drawing_commands 仅依赖 PyQt6，无循环导入风险，可直接顶层导入
 from .drawing_commands import AddItemCommand, MoveItemsCommand  # noqa: E402
 
+# 防御性导入：工具光标（前端可能尚未实现 ui/drawing_cursors.py）
+try:
+    from .drawing_cursors import create_tool_cursor
+except ImportError:
+    create_tool_cursor = None
+
+# 防御性导入：富文本格式工具栏（前端可能尚未实现 ui/drawing_text_editor.py）
+try:
+    from .drawing_text_editor import TextFormatToolbar
+except ImportError:
+    TextFormatToolbar = None
+
+# 防御性导入：文字修改撤销命令（drawing_commands 中新增）
+try:
+    from .drawing_commands import ModifyTextCommand
+except ImportError:
+    ModifyTextCommand = None
+
 
 # ===========================================================================
 # 几何辅助函数
@@ -152,10 +170,34 @@ class BaseTool(QObject):
 
     # ---- 生命周期 ----
     def activate(self):
-        pass
+        """工具激活时切换光标"""
+        # 优先从 editor_ref 获取工具名（最准确，含下划线命名如 color_picker/round_rect）
+        tool_name = getattr(self.editor_ref, "current_tool_name", None)
+        if not tool_name:
+            # 回退：从类名推导（仅作兜底，可能对复合名不准确）
+            tool_name = self.__class__.__name__.lower().replace("tool", "")
+        if create_tool_cursor is not None and self.view:
+            cursor = create_tool_cursor(tool_name)
+            if cursor is not None:
+                self.view.setCursor(cursor)
+            else:
+                # 对特定工具使用系统光标
+                if tool_name in ("color_picker", "rect_select", "free_select"):
+                    self.view.setCursor(Qt.CursorShape.CrossCursor)
+                elif tool_name == "text":
+                    self.view.setCursor(Qt.CursorShape.IBeamCursor)
+                elif tool_name in ("line", "curve", "rect", "round_rect", "ellipse",
+                                   "triangle", "star", "arrow", "callout"):
+                    self.view.setCursor(Qt.CursorShape.CrossCursor)
+                else:
+                    self.view.setCursor(Qt.CursorShape.ArrowCursor)
+        elif self.view:
+            self.view.setCursor(Qt.CursorShape.ArrowCursor)
 
     def deactivate(self):
-        pass
+        """工具停用时恢复默认光标"""
+        if self.view:
+            self.view.setCursor(Qt.CursorShape.ArrowCursor)
 
     def cursor(self):
         return Qt.CursorShape.ArrowCursor
@@ -452,32 +494,127 @@ class FillTool(BaseTool):
 
 
 class TextTool(BaseTool):
-    """文字：点击弹 QInputDialog，文字作为 QGraphicsTextItem 添加。"""
+    """文字工具：点击画布创建可编辑文字，支持富文本格式，可拖动。
+
+    交互流程：
+    1. 点击空白处 → 创建新 QGraphicsTextItem，进入编辑态
+    2. 点击已有文字 → 进入编辑态（二次编辑）
+    3. 编辑时显示格式工具栏
+    4. 失焦时提交到撤销栈
+    """
+
+    def __init__(self, scene, view, editor_ref):
+        super().__init__(scene, view, editor_ref)
+        self._editing_item = None
+        self._is_new_item = False
+        self._old_text = ""
+        self._old_font = None
+        self._old_color = None
 
     def mouse_press(self, event, scene_pos):
-        text, ok = QInputDialog.getText(self.view, "输入文字", "请输入文字：")
-        if ok and text:
-            item = QGraphicsTextItem(text)
+        # 检查是否点击了已有的文字项
+        bg = self._bg_item()
+        items_here = [it for it in self.scene.items(scene_pos)
+                      if it is not bg and isinstance(it, QGraphicsTextItem)]
+
+        if items_here:
+            # 二次编辑已有文字
+            item = items_here[0]
+            self._begin_edit(item, scene_pos, is_new=False)
+        else:
+            # 创建新文字
+            item = QGraphicsTextItem("")
             item.setPos(scene_pos)
-            item.setDefaultTextColor(self._text_color(event))
+            # 使用当前颜色
+            color = self._text_color(event)
+            item.setDefaultTextColor(color)
+            # 默认字体
             font = QFont()
             font.setPointSize(max(8, int(self.editor_ref.pen_width) + 8))
+            font.setFamily("微软雅黑")
             item.setFont(font)
-            self._make_selectable(item)
-            self.editor_ref.undo_stack.push(
-                AddItemCommand(self.scene, item))
+            # 设置可交互编辑 + 可拖动 + 可选择
+            item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
+            self.scene.addItem(item)
+            # 焦点到文字项
+            item.setFocus()
+            self._begin_edit(item, scene_pos, is_new=True)
 
-    def _text_color(self, event) -> QColor:
-        color = self._button_color(event)
-        if not isinstance(color, QColor):
-            color = QColor(color)
-        return color
+    def _begin_edit(self, item, scene_pos, is_new):
+        """开始编辑文字项"""
+        self._editing_item = item
+        self._is_new_item = is_new
+        self._old_text = item.toPlainText()
+        self._old_font = QFont(item.font())
+        self._old_color = QColor(item.defaultTextColor())
+
+        # 显示格式工具栏（如果前端已创建）
+        toolbar = getattr(self.editor_ref, "text_toolbar", None)
+        if toolbar is not None and TextFormatToolbar is not None:
+            toolbar.setTargetItem(item)
+            toolbar.show()
+
+        # 设置文字项为可编辑模式
+        item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        item.setFocus()
 
     def mouse_move(self, event, scene_pos):
         pass
 
     def mouse_release(self, event, scene_pos):
         pass
+
+    def deactivate(self):
+        """工具切换时提交正在编辑的文字"""
+        self._commit_edit()
+
+    def _commit_edit(self):
+        """提交编辑：将文字项加入撤销栈"""
+        if self._editing_item is None:
+            return
+        item = self._editing_item
+        new_text = item.toPlainText().strip()
+
+        # 隐藏格式工具栏
+        toolbar = getattr(self.editor_ref, "text_toolbar", None)
+        if toolbar is not None:
+            toolbar.clearTarget()
+            toolbar.hide()
+
+        if not new_text:
+            # 空文字：从场景中移除
+            if item.scene() is self.scene:
+                self.scene.removeItem(item)
+        else:
+            # 退出编辑模式，恢复为可选择+可拖动
+            item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, False)
+
+            if self._is_new_item:
+                # 新文字：push AddItemCommand（幂等 redo，项已在场景中不会重复添加）
+                self.editor_ref.undo_stack.push(AddItemCommand(self.scene, item))
+            else:
+                # 修改已有文字：push ModifyTextCommand
+                if ModifyTextCommand is not None:
+                    new_font = QFont(item.font())
+                    new_color = QColor(item.defaultTextColor())
+                    if new_text != self._old_text or new_font != self._old_font:
+                        self.editor_ref.undo_stack.push(
+                            ModifyTextCommand(item, self._old_text, new_text,
+                                              self._old_font, new_font,
+                                              self._old_color, new_color))
+
+        self._editing_item = None
+        self._is_new_item = False
+
+    def _text_color(self, event) -> QColor:
+        color = self._button_color(event)
+        if not isinstance(color, QColor):
+            color = QColor(color)
+        return color
 
 
 class _SelectToolBase(BaseTool):
@@ -872,4 +1009,6 @@ def create_tool(name, scene, view=None, editor_ref=None) -> BaseTool:
     cls = TOOL_REGISTRY.get(key)
     if cls is None:
         raise ValueError(f"Unknown tool: {name}")
-    return cls(scene, view, editor_ref)
+    tool = cls(scene, view, editor_ref)
+    tool.activate()
+    return tool

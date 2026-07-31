@@ -25,17 +25,22 @@ from typing import List, Optional, Tuple, Dict, Any
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QRectF, QPointF, QPoint
 from PyQt6.QtGui import (
     QColor, QPen, QBrush, QPixmap, QPainter, QFont, QMouseEvent, QImage,
-    QUndoCommand, QUndoStack
+    QCursor, QKeySequence, QUndoCommand, QUndoStack
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QPushButton, QLabel, QSlider,
-    QGraphicsView, QGraphicsScene, QGraphicsRectItem, QSizePolicy, QSpacerItem,
-    QColorDialog, QFileDialog, QMessageBox, QButtonGroup,
+    QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsItem,
+    QGraphicsPixmapItem, QGraphicsTextItem, QSizePolicy, QSpacerItem,
+    QColorDialog, QFileDialog, QMessageBox, QButtonGroup, QMenu, QApplication,
     QLayout, QLayoutItem
 )
 
 from core.database import DatabaseManager, get_assets_dir, get_assets_root
 from .theme import THEMES, DEFAULT_THEME, get_drawing_board_qss
+from .collapsible_section import CollapsibleSection
+from .drawing_ruler import HorizontalRuler, VerticalRuler
+from .drawing_text_editor import TextFormatToolbar
+from .drawing_cursors import create_tool_cursor
 
 
 # ===========================================================================
@@ -255,6 +260,49 @@ _FILE_TOOLS: List[Tuple[str, str]] = [
     ("save_file", "保存为文件"), ("insert_note", "插入到笔记"),
 ]
 
+# ---- 按钮 tooltip（中文名 (快捷键) - 功能简述）----
+_DRAW_TOOLTIPS: Dict[str, str] = {
+    "pen":          "画笔 (P) - 自由手绘线条",
+    "airbrush":     "喷枪 (A) - 喷雾效果绘制",
+    "brush":        "刷子 (B) - 较粗的笔触",
+    "eraser":       "橡皮 (E) - 擦除内容（白色覆盖）",
+    "color_picker": "取色 (D) - 从画布拾取颜色",
+    "fill":         "填充 (F) - 洪水填充封闭区域",
+    "text":         "文字 (T) - 插入文本",
+}
+_SHAPE_TOOLTIPS: Dict[str, str] = {
+    "line":        "直线 (L) - 绘制直线, Shift 锁 45°",
+    "curve":       "曲线 (C) - 绘制 S 型曲线",
+    "rectangle":   "矩形 (R) - 绘制矩形",
+    "round_rect":  "圆角矩形 (X) - 绘制圆角矩形",
+    "ellipse":     "椭圆 (O) - 绘制椭圆",
+    "triangle":    "三角形 (G) - 绘制三角形",
+    "star":        "星形 (S) - 绘制五角星",
+    "arrow":       "箭头 (W) - 绘制箭头",
+    "dialog":      "对话框 (D) - 绘制对话框",
+}
+_SELECT_TOOLTIPS: Dict[str, str] = {
+    "rect_select": "矩形选择 - 框选图形",
+    "free_select": "自由选择 - 自由曲线选区",
+    "select_all":  "全选 (Ctrl+A) - 选中所有图形",
+    "copy":        "复制 (Ctrl+C) - 复制选中项",
+    "cut":         "剪切 (Ctrl+X) - 剪切选中项",
+    "paste":       "粘贴 (Ctrl+V) - 粘贴剪贴板",
+    "delete":      "删除 (Delete) - 删除选中项",
+    "undo":        "撤销 (Ctrl+Z) - 撤销上一步",
+    "redo":        "重做 (Ctrl+Y) - 重做",
+}
+_VIEW_TOOLTIPS: Dict[str, str] = {
+    "zoom_in":  "放大 - 放大画布",
+    "zoom_out": "缩小 - 缩小画布",
+    "zoom_100": "100% - 重置缩放",
+    "zoom_fit": "适应窗口 - 适配窗口大小",
+}
+_FILE_TOOLTIPS: Dict[str, str] = {
+    "save_file":  "保存为文件 - 导出为图片文件",
+    "insert_note": "插入到笔记 - 插入当前笔记",
+}
+
 # 20 色预设调色板（黑/灰/深红/红/橙/黄/浅绿/绿/青/蓝/深蓝/紫/粉/棕/白/浅灰/浅红/浅黄/浅绿/浅蓝）
 _PALETTE: List[Tuple[str, str]] = [
     ("black", "#000000"), ("gray", "#808080"), ("darkred", "#8B0000"), ("red", "#FF0000"),
@@ -282,6 +330,8 @@ class _CanvasView(QGraphicsView):
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
 
     def mousePressEvent(self, event: QMouseEvent):
         tool = self._board.current_tool
@@ -293,8 +343,11 @@ class _CanvasView(QGraphicsView):
 
     def mouseMoveEvent(self, event: QMouseEvent):
         # 状态栏坐标更新（无论是否有工具）
-        scene_pos = self.mapToScene(event.position().toPoint())
+        vp = event.position().toPoint()
+        scene_pos = self.mapToScene(vp)
         self._board._update_status_coord(scene_pos)
+        # 比例尺鼠标指示线联动
+        self._board._update_ruler_mouse(vp.x(), vp.y())
         tool = self._board.current_tool
         if tool is not None:
             tool.mouse_move(event, scene_pos)
@@ -308,6 +361,40 @@ class _CanvasView(QGraphicsView):
             tool.mouse_release(event, scene_pos)
         else:
             super().mouseReleaseEvent(event)
+
+    def wheelEvent(self, event):
+        """Ctrl+滚轮缩放（25% 步进，范围 25-800%）；开启滚轮缩放时直接缩放；否则平移。"""
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier or self._board.wheel_zoom_enabled:
+            delta = event.angleDelta().y()
+            step = 25 if delta > 0 else -25
+            self._board.set_zoom(self._board.zoom_level + step)
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+    def keyPressEvent(self, event):
+        """Delete 删除选中项；Ctrl+V 从系统剪贴板粘贴图片。"""
+        # 文字项正在编辑时，Delete / Ctrl+V 等按键交给文本编辑器处理
+        scene = self.scene()
+        if scene is not None:
+            focus_item = scene.focusItem()
+            if focus_item is not None and isinstance(focus_item, QGraphicsTextItem):
+                super().keyPressEvent(event)
+                return
+        if event.key() == Qt.Key.Key_Delete:
+            self._board._delete_selected()
+            event.accept()
+            return
+        if event.matches(QKeySequence.StandardKey.Paste):
+            self._board._paste_from_system_clipboard()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def contextMenuEvent(self, event):
+        """显示画布右键菜单。"""
+        self._board._show_context_menu(event.globalPosition().toPoint())
+        event.accept()
 
 
 # ===========================================================================
@@ -333,6 +420,13 @@ class DrawingBoardView(QWidget):
         self.pen_width: int = 2
         self.filled: bool = False
         self.zoom_level: int = 100
+        # ---- V4 新增状态 ----
+        self.wheel_zoom_enabled: bool = False  # 滚轮缩放开关
+        self.show_grid: bool = False  # 显示网格（右键菜单切换）
+        self._sections: List["CollapsibleSection"] = []
+        self.text_toolbar: Optional[TextFormatToolbar] = None
+        self.h_ruler: Optional[HorizontalRuler] = None
+        self.v_ruler: Optional[VerticalRuler] = None
 
         # ---- 撤销栈（限制 50 步）----
         self.undo_stack = QUndoStack(self)
@@ -360,44 +454,90 @@ class DrawingBoardView(QWidget):
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
+        root.setSpacing(6)
 
-        # 顶部工具栏（FlowLayout 自动换行）
+        # 顶部工具栏（6 个 CollapsibleSection，FlowLayout 自动换行）
         self.toolbar = QFrame()
         self.toolbar.setObjectName("drawing_toolbar")
-        self.toolbar_layout = FlowLayout(self.toolbar, margin=8, h_spacing=6, v_spacing=6)
+        toolbar_outer = QVBoxLayout(self.toolbar)
+        toolbar_outer.setContentsMargins(4, 4, 4, 4)
+        toolbar_outer.setSpacing(4)
+        sections_wrap = QWidget()
+        self.toolbar_layout = FlowLayout(sections_wrap, margin=4, h_spacing=6, v_spacing=6)
+        toolbar_outer.addWidget(sections_wrap)
 
-        # 各分组
-        self._build_group("工具", _DRAW_TOOLS, checkable=True)
-        self._build_group("形状", _SHAPE_TOOLS, checkable=True)
-        self._build_group("操作", _OPERATION_TOOLS, checkable=False)
-        self._build_group("视图", _VIEW_TOOLS, checkable=False)
-        self._build_group("文件", _FILE_TOOLS, checkable=False)
+        self._sections: List["CollapsibleSection"] = []
 
-        self.toolbar.setLayout(self.toolbar_layout)
+        # 1. 文件
+        sec = CollapsibleSection("📁 文件")
+        self._build_group(sec, _FILE_TOOLS, checkable=False, tooltips=_FILE_TOOLTIPS)
+        self._sections.append(sec)
+        self.toolbar_layout.addWidget(sec)
+
+        # 2. 绘制工具
+        sec = CollapsibleSection("🖊 绘制工具")
+        _draw_tools = [
+            ("pen", "画笔"), ("airbrush", "喷枪"), ("brush", "刷子"),
+            ("eraser", "橡皮"), ("color_picker", "取色"), ("fill", "填充"), ("text", "文字"),
+        ]
+        self._build_group(sec, _draw_tools, checkable=True, tooltips=_DRAW_TOOLTIPS)
+        self._sections.append(sec)
+        self.toolbar_layout.addWidget(sec)
+
+        # 3. 形状工具
+        sec = CollapsibleSection("➡️ 形状工具")
+        self._build_group(sec, _SHAPE_TOOLS, checkable=True, tooltips=_SHAPE_TOOLTIPS)
+        self._sections.append(sec)
+        self.toolbar_layout.addWidget(sec)
+
+        # 4. 颜色样式
+        sec = CollapsibleSection("🎨 颜色样式")
+        self._build_color_section(sec)
+        self._sections.append(sec)
+        self.toolbar_layout.addWidget(sec)
+
+        # 5. 选择操作
+        sec = CollapsibleSection("🧭 选择操作")
+        self._build_select_ops_section(sec)
+        self._sections.append(sec)
+        self.toolbar_layout.addWidget(sec)
+
+        # 6. 视图控制
+        sec = CollapsibleSection("🔍 视图控制")
+        self._build_view_section(sec)
+        self._sections.append(sec)
+        self.toolbar_layout.addWidget(sec)
+
         root.addWidget(self.toolbar)
 
-        # 颜色组 + 粗细 + 填充模式
-        self._build_color_row(root)
+        # 富文本格式工具栏（画布上方，初始隐藏）
+        self.text_toolbar = TextFormatToolbar(self)
+        root.addWidget(self.text_toolbar)
 
-        # 画布
-        self._build_canvas(root)
+        # 画布区（含比例尺）
+        self._build_canvas_area(root)
 
         # 状态栏
-        self.status_label = QLabel("就绪 · 画布 800×600 · 缩放 100% · 工具：画笔")
+        self.status_label = QLabel("就绪 · 画布 800×600 · 缩放 100% · 工具：画笔 · 滚轮缩放: 关")
         self.status_label.setObjectName("drawing_status")
         root.addWidget(self.status_label)
 
-    def _build_group(self, group_label: str, tools: List[Tuple[str, str]], checkable: bool):
-        """构建一个工具分组：分组标签 + 一组按钮。"""
-        label = QLabel(group_label)
-        label.setObjectName("drawing_group_label")
-        self.toolbar_layout.addWidget(label)
+    def _build_group(self, section: "CollapsibleSection", tools: List[Tuple[str, str]],
+                     checkable: bool, tooltips: Optional[Dict[str, str]] = None):
+        """构建一组按钮放入指定 CollapsibleSection（内部用 FlowLayout 自动换行）。
+
+        保留原有的按钮创建 / checkable / ButtonGroup 互斥逻辑，
+        只是把按钮放入 section 而非直接加入 toolbar_layout。
+        """
+        container = QWidget()
+        flow = FlowLayout(container, margin=2, h_spacing=6, v_spacing=6)
         for name, text in tools:
             btn = QPushButton(text)
             btn.setObjectName(f"tool_{name}")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setProperty("tool_name", name)
+            if tooltips and name in tooltips:
+                btn.setToolTip(tooltips[name])
             if checkable:
                 btn.setCheckable(True)
                 self._tool_btn_group.addButton(btn)
@@ -406,22 +546,16 @@ class DrawingBoardView(QWidget):
                 # 操作/视图/文件按钮通过 clicked 信号处理
                 btn.clicked.connect(lambda _checked=False, n=name: self._on_action_clicked(n))
             self._tool_buttons[name] = btn
-            self.toolbar_layout.addWidget(btn)
-        # 分组分隔
-        sep = QFrame()
-        sep.setFixedWidth(1)
-        sep.setFixedHeight(22)
-        sep.setStyleSheet("background: rgba(128,128,128,80);")
-        self.toolbar_layout.addWidget(sep)
+            flow.addWidget(btn)
+        section.addWidget(container)
 
-    def _build_color_row(self, root_layout: QVBoxLayout):
+    def _build_color_section(self, section: "CollapsibleSection"):
+        """颜色样式分组：主/次色 + 调色板 + 自定义色 + 粗细 + 空心/实心。"""
         row = QFrame()
         row.setObjectName("drawing_group")
         fl = FlowLayout(row, margin=4, h_spacing=6, v_spacing=4)
 
         # 主色/次色叠加显示
-        swatch_box = QHBoxLayout()
-        swatch_box.setSpacing(-6)  # 叠加效果
         self.primary_swatch = QPushButton()
         self.primary_swatch.setObjectName("primary_swatch")
         self.primary_swatch.setFixedSize(34, 34)
@@ -495,9 +629,91 @@ class DrawingBoardView(QWidget):
 
         fl.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
         row.setLayout(fl)
-        root_layout.addWidget(row)
+        section.addWidget(row)
 
-    def _build_canvas(self, root_layout: QVBoxLayout):
+    def _build_select_ops_section(self, section: "CollapsibleSection"):
+        """选择操作分组：矩形/自由选择（互斥）+ 选择/剪贴板/撤销动作。"""
+        container = QWidget()
+        flow = FlowLayout(container, margin=2, h_spacing=6, v_spacing=6)
+        # 互斥选择工具
+        for name, text in [("rect_select", "矩形选择"), ("free_select", "自由选择")]:
+            btn = QPushButton(text)
+            btn.setObjectName(f"tool_{name}")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setProperty("tool_name", name)
+            btn.setCheckable(True)
+            btn.setToolTip(_SELECT_TOOLTIPS.get(name, ""))
+            self._tool_btn_group.addButton(btn)
+            self._tool_btn_group.setId(btn, len(self._tool_buttons))
+            self._tool_buttons[name] = btn
+            flow.addWidget(btn)
+        # 动作按钮
+        for name, text in [
+            ("select_all", "全选"), ("copy", "复制"), ("cut", "剪切"), ("paste", "粘贴"),
+            ("delete", "删除"), ("undo", "撤销"), ("redo", "重做"), ("clear", "清空"),
+        ]:
+            btn = QPushButton(text)
+            btn.setObjectName(f"tool_{name}")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setProperty("tool_name", name)
+            btn.setToolTip(_SELECT_TOOLTIPS.get(name, ""))
+            btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
+            self._tool_buttons[name] = btn
+            flow.addWidget(btn)
+        section.addWidget(container)
+
+    def _build_view_section(self, section: "CollapsibleSection"):
+        """视图控制分组：放大/缩小/100%/适应窗口 + 滚轮缩放开关。"""
+        container = QWidget()
+        flow = FlowLayout(container, margin=2, h_spacing=6, v_spacing=6)
+        for name, text in _VIEW_TOOLS:
+            btn = QPushButton(text)
+            btn.setObjectName(f"tool_{name}")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setProperty("tool_name", name)
+            btn.setToolTip(_VIEW_TOOLTIPS.get(name, ""))
+            btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
+            self._tool_buttons[name] = btn
+            flow.addWidget(btn)
+        # 滚轮缩放开关（可勾选，不加入互斥工具组）
+        wz = QPushButton("滚轮缩放: 关")
+        wz.setObjectName("tool_wheel_zoom_toggle")
+        wz.setCursor(Qt.CursorShape.PointingHandCursor)
+        wz.setCheckable(True)
+        wz.setToolTip("切换滚轮缩放模式 (开: 滚轮直接缩放; 关: 滚轮平移, Ctrl+滚轮缩放)")
+        wz.toggled.connect(self._toggle_wheel_zoom)
+        self._tool_buttons["wheel_zoom_toggle"] = wz
+        flow.addWidget(wz)
+        section.addWidget(container)
+
+    def _build_canvas_area(self, root_layout: QVBoxLayout):
+        """画布区：顶部水平比例尺 + 左侧垂直比例尺 + 画布视图。"""
+        # 水平比例尺
+        self.h_ruler = HorizontalRuler()
+        self.h_ruler.setCanvasWidth(CANVAS_WIDTH)
+        # 顶部行：左侧占位（对齐垂直尺宽度）+ 水平尺
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(0)
+        top_row.addSpacing(self.v_ruler_width())
+        top_row.addWidget(self.h_ruler, 1)
+        root_layout.addLayout(top_row)
+
+        # 中间行：垂直尺 + 画布
+        middle = QHBoxLayout()
+        middle.setContentsMargins(0, 0, 0, 0)
+        middle.setSpacing(0)
+        self.v_ruler = VerticalRuler()
+        self.v_ruler.setCanvasHeight(CANVAS_HEIGHT)
+        middle.addWidget(self.v_ruler)
+        self._build_canvas(middle)
+        root_layout.addLayout(middle, 1)
+
+    def v_ruler_width(self) -> int:
+        """垂直比例尺宽度（用于顶部占位对齐）。"""
+        return 32
+
+    def _build_canvas(self, middle_layout: QHBoxLayout):
         self.scene = QGraphicsScene(self)
         self.scene.setSceneRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
         # 白色画布背景（无论主题都保持白色，符合 Windows 画图习惯）
@@ -506,13 +722,15 @@ class DrawingBoardView(QWidget):
         self._canvas_bg_item.setPen(QPen(QColor("#FFFFFF")))
         self._canvas_bg_item.setZValue(-1000)
         self.scene.addItem(self._canvas_bg_item)
+        # 选中文字项时联动富文本工具栏
+        self.scene.selectionChanged.connect(self._on_scene_selection_changed)
 
         self.view = _CanvasView(self)
         self.view.setScene(self.scene)
         self.view.setObjectName("drawing_canvas_view")
         self.view.setBackgroundBrush(QColor("#E0E0E0"))
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root_layout.addWidget(self.view, 1)
+        middle_layout.addWidget(self.view, 1)
 
     # -------------------------------------------------------------------
     # 工具切换 / 颜色 / 粗细 / 填充
@@ -539,6 +757,8 @@ class DrawingBoardView(QWidget):
             self._paste()
         elif name == "cut":
             self._cut_selection()
+        elif name == "delete":
+            self._delete_selected()
         elif name == "select_all":
             self._select_all()
         elif name == "zoom_in":
@@ -572,6 +792,13 @@ class DrawingBoardView(QWidget):
         btn = self._tool_buttons.get(name)
         if btn is not None and btn.isCheckable() and not btn.isChecked():
             btn.setChecked(True)
+        # 设置画布光标：有自定义光标则覆盖；无则保留 activate() 设置的系统光标；
+        # 仅当工具创建失败（current_tool 为 None）时回退到箭头光标
+        cursor = create_tool_cursor(name)
+        if cursor is not None:
+            self.view.setCursor(cursor)
+        elif self.current_tool is None:
+            self.view.setCursor(Qt.CursorShape.ArrowCursor)
         self._update_status_tool()
 
     def _set_active_color(self, which: str):
@@ -736,6 +963,102 @@ class DrawingBoardView(QWidget):
                 it.setSelected(True)
 
     # -------------------------------------------------------------------
+    # V4 新增：删除 / 系统剪贴板粘贴 / 滚轮缩放 / 右键菜单 / 文字工具栏联动
+    # -------------------------------------------------------------------
+    def _delete_selected(self):
+        """删除当前选中项（push RemoveItemsCommand）。"""
+        items = self._selected_items()
+        if not items:
+            self._update_status("无选中项可删除")
+            return
+        if _HAS_DRAWING_COMMANDS:
+            self.undo_stack.push(RemoveItemsCommand(self.scene, items))
+        else:
+            for it in items:
+                self.scene.removeItem(it)
+        self._update_status(f"已删除 {len(items)} 项")
+
+    def _paste_from_system_clipboard(self):
+        """从系统剪贴板获取图片，创建 QGraphicsPixmapItem 加入场景与撤销栈。"""
+        cb = QApplication.clipboard()
+        pm = cb.pixmap()
+        if pm is None or pm.isNull():
+            self._update_status("系统剪贴板无图片")
+            return
+        item = QGraphicsPixmapItem(pm)
+        item.setPos(0, 0)
+        try:
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        except Exception:
+            pass
+        if _HAS_DRAWING_COMMANDS:
+            self.undo_stack.push(AddItemCommand(self.scene, item))
+        else:
+            self.scene.addItem(item)
+        self._update_status("已从系统剪贴板粘贴图片")
+
+    def _toggle_wheel_zoom(self, checked: bool):
+        """切换滚轮缩放模式。"""
+        self.wheel_zoom_enabled = checked
+        btn = self._tool_buttons.get("wheel_zoom_toggle")
+        if btn is not None:
+            btn.setText("滚轮缩放: 开" if checked else "滚轮缩放: 关")
+        self._update_status(f"滚轮缩放: {'开' if checked else '关'}")
+
+    def _show_context_menu(self, pos: QPoint):
+        """画布右键菜单：粘贴 / 全选 / 适应窗口 / 100% / 画布背景色 / 显示网格。"""
+        menu = QMenu(self)
+        menu.setObjectName("drawing_context_menu")
+        act_paste = menu.addAction("粘贴")
+        act_select_all = menu.addAction("全选")
+        menu.addSeparator()
+        act_fit = menu.addAction("适应窗口")
+        act_100 = menu.addAction("100%")
+        menu.addSeparator()
+        act_bg = menu.addAction("画布背景色...")
+        act_grid = menu.addAction("显示网格")
+        act_grid.setCheckable(True)
+        act_grid.setChecked(self.show_grid)
+        # 信号绑定
+        act_paste.triggered.connect(self._paste_from_system_clipboard)
+        act_select_all.triggered.connect(self._select_all)
+        act_fit.triggered.connect(self._fit_to_window)
+        act_100.triggered.connect(lambda: self.set_zoom(100))
+        act_bg.triggered.connect(self._choose_canvas_bg)
+        act_grid.toggled.connect(self._toggle_grid)
+        # 主题样式
+        t = THEMES[self.current_theme]
+        qss = get_drawing_board_qss(t)
+        menu.setStyleSheet(qss["context_menu"])
+        menu.exec(pos)
+
+    def _choose_canvas_bg(self):
+        """选择画布背景色。"""
+        initial = self._canvas_bg_item.brush().color()
+        color = QColorDialog.getColor(initial, self, "选择画布背景色")
+        if color.isValid():
+            self._canvas_bg_item.setBrush(QBrush(color))
+            self._canvas_bg_item.setPen(QPen(color))
+            self._update_status(f"画布背景色已设置为 {color.name()}")
+
+    def _toggle_grid(self, checked: bool):
+        """切换网格显示（记录状态）。"""
+        self.show_grid = checked
+        self._update_status(f"显示网格: {'开' if checked else '关'}")
+
+    def _on_scene_selection_changed(self):
+        """场景选中变化时联动富文本工具栏：选中文字项则显示，否则隐藏。"""
+        text_item: Optional[QGraphicsTextItem] = None
+        for it in self.scene.selectedItems():
+            if isinstance(it, QGraphicsTextItem) and it is not self._canvas_bg_item:
+                text_item = it
+                break
+        if text_item is not None and self.text_toolbar is not None:
+            self.text_toolbar.setTargetItem(text_item)
+        elif self.text_toolbar is not None:
+            self.text_toolbar.clearTarget()
+
+    # -------------------------------------------------------------------
     # 视图缩放
     # -------------------------------------------------------------------
     def set_zoom(self, level: int):
@@ -745,7 +1068,19 @@ class DrawingBoardView(QWidget):
         factor = level / 100.0
         self.view.resetTransform()
         self.view.scale(factor, factor)
+        # 通知比例尺更新刻度
+        if self.h_ruler is not None:
+            self.h_ruler.setZoom(factor)
+        if self.v_ruler is not None:
+            self.v_ruler.setZoom(factor)
         self._update_status_zoom()
+
+    def _update_ruler_mouse(self, x: int, y: int):
+        """比例尺鼠标指示线联动（来自画布视图的视口坐标）。"""
+        if self.h_ruler is not None:
+            self.h_ruler.setMousePos(x)
+        if self.v_ruler is not None:
+            self.v_ruler.setMousePos(y)
 
     def _fit_to_window(self):
         margin = 24
@@ -860,10 +1195,11 @@ class DrawingBoardView(QWidget):
     def _update_status(self, msg: Optional[str] = None):
         coord = getattr(self, "_last_coord", (0, 0))
         label = dict(_DRAW_TOOLS + _SHAPE_TOOLS).get(self.current_tool_name, self.current_tool_name)
+        wheel = "开" if self.wheel_zoom_enabled else "关"
         prefix = f"{msg} · " if msg else ""
         self.status_label.setText(
             f"{prefix}坐标 ({coord[0]}, {coord[1]}) · 画布 {CANVAS_WIDTH}×{CANVAS_HEIGHT} · "
-            f"缩放 {self.zoom_level}% · 工具：{label}"
+            f"缩放 {self.zoom_level}% · 工具：{label} · 滚轮缩放: {wheel}"
         )
 
     # -------------------------------------------------------------------
@@ -875,6 +1211,20 @@ class DrawingBoardView(QWidget):
         t = THEMES[theme_name]
         qss = get_drawing_board_qss(t)
         self.toolbar.setStyleSheet(qss["toolbar"])
+        # 折叠分组面板
+        for sec in self._sections:
+            sec.apply_theme(t)
+        # 比例尺
+        if self.h_ruler is not None:
+            self.h_ruler.setStyleSheet(qss["ruler"])
+            self.h_ruler.apply_theme(t)
+        if self.v_ruler is not None:
+            self.v_ruler.setStyleSheet(qss["ruler"])
+            self.v_ruler.apply_theme(t)
+        # 富文本工具栏
+        if self.text_toolbar is not None:
+            self.text_toolbar.setStyleSheet(qss["text_toolbar"])
+            self.text_toolbar.apply_theme(t)
         # 分组标签
         for child in self.toolbar.findChildren(QLabel):
             child.setStyleSheet(qss["tool_group_label"])

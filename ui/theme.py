@@ -948,7 +948,7 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
             padding: 6px 10px;
             font-size: 12px;
             color: #FFFFFF;
-            font-weight: 600;
+            font-weight: bold;
             min-width: 28px;
             min-height: 24px;
         }}
@@ -956,6 +956,7 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
             background: {t['primary_hover_top']};
             border: 1px solid {t['primary']};
             color: #FFFFFF;
+            font-weight: bold;
         }}
         QPushButton:pressed {{
             background: {t['primary_pressed_top']};
@@ -1026,6 +1027,110 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
         }}
         QSlider::handle:horizontal:hover {{
             background: {t['primary']};
+        }}
+        """,
+        # 折叠面板（标题栏 + 内容区）；圆角 10px，边框 border，hover 用 list_hover_bg
+        "collapsible_section": f"""
+        QFrame#collapsible_section {{
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 10px;
+        }}
+        QPushButton#collapsible_section_title {{
+            background: transparent;
+            border: none;
+            border-radius: 10px;
+            text-align: left;
+            padding: 6px 12px;
+            color: {t['text_primary']};
+            font-weight: 600;
+            font-size: 13px;
+        }}
+        QPushButton#collapsible_section_title:hover {{
+            background: {t['list_hover_bg']};
+            color: {t['primary']};
+        }}
+        QWidget#collapsible_section_content {{
+            background: transparent;
+        }}
+        """,
+        # 比例尺背景（toolbar_bg）
+        "ruler": f"""
+        QWidget {{
+            background: {t['toolbar_bg']};
+            border: 1px solid {t['border']};
+        }}
+        """,
+        # 富文本工具栏（card_bg + border + 圆角 8px）
+        "text_toolbar": f"""
+        QFrame#text_format_toolbar {{
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 8px;
+        }}
+        QFontComboBox, QSpinBox {{
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 6px;
+            padding: 2px 6px;
+            color: {t['text_primary']};
+            font-size: 12px;
+        }}
+        QFontComboBox:hover, QSpinBox:hover {{
+            border: 1px solid {t['primary']};
+        }}
+        QToolButton {{
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 12px;
+            color: {t['text_primary']};
+        }}
+        QToolButton:hover {{
+            background: {t['list_hover_bg']};
+            border-color: {t['border']};
+        }}
+        QToolButton:checked {{
+            background: {t['primary']};
+            color: #FFFFFF;
+            border: 1px solid {t['primary']};
+        }}
+        QPushButton#text_color_btn {{
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 6px;
+            padding: 4px 8px;
+            color: {t['text_primary']};
+            font-weight: bold;
+        }}
+        QPushButton#text_color_btn:hover {{
+            background: {t['selection_bg']};
+            border-color: {t['primary']};
+        }}
+        """,
+        # 右键菜单
+        "context_menu": f"""
+        QMenu {{
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 8px;
+            padding: 4px;
+            color: {t['text_primary']};
+            font-size: 13px;
+        }}
+        QMenu::item {{
+            padding: 6px 24px;
+            border-radius: 6px;
+        }}
+        QMenu::item:selected {{
+            background: {t['selection_bg']};
+            color: {t['selection_fg']};
+        }}
+        QMenu::separator {{
+            height: 1px;
+            background: {t['border']};
+            margin: 4px 8px;
         }}
         """,
     }
