@@ -795,3 +795,237 @@ def get_mainwindow_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QStatusBar::item {{ border: none; }}
         """,
     }
+
+
+# ===========================================================================
+# 顶部 Tab 切换栏 QSS（笔记 / 画板 视图切换）
+# ===========================================================================
+
+def get_top_tab_bar_qss(t: Dict[str, Any]) -> Dict[str, str]:
+    """返回顶部 Tab 栏样式：
+    {'container', 'tab', 'tab_checked', 'tab_unchecked'}
+
+    - 选中态：下划线 2px（accent），文字 text_primary，13pt 加粗
+    - 未选中态：文字 text_secondary，13pt 常规
+    - 背景：toolbar_bg（次级背景层）
+    - 圆角：上方两角 8px，下方 0px
+    - padding：12px 24px
+    """
+    return {
+        "container": f"""
+        QFrame {{
+            background: {t['toolbar_bg']};
+            border-bottom: 1px solid {t['border']};
+        }}
+        """,
+        "tab": f"""
+        QPushButton {{
+            background: {t['toolbar_bg']};
+            color: {t['text_secondary']};
+            border: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            border-bottom-left-radius: 0px;
+            border-bottom-right-radius: 0px;
+            padding: 12px 24px;
+            font-size: 13pt;
+            font-weight: normal;
+            text-align: center;
+            outline: 0;
+        }}
+        QPushButton:hover:!checked {{
+            color: {t['text_primary']};
+            background: {t['list_hover_bg']};
+        }}
+        QPushButton:pressed:!checked {{
+            background: {t['selection_bg']};
+        }}
+        """,
+        "tab_checked": f"""
+        QPushButton {{
+            background: {t['toolbar_bg']};
+            color: {t['text_primary']};
+            border: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            border-bottom-left-radius: 0px;
+            border-bottom-right-radius: 0px;
+            border-bottom: 2px solid {t['primary']};
+            padding: 12px 24px;
+            font-size: 13pt;
+            font-weight: bold;
+            text-align: center;
+            outline: 0;
+        }}
+        QPushButton:hover {{
+            color: {t['primary_text']};
+        }}
+        """,
+        "tab_unchecked": f"""
+        QPushButton {{
+            background: {t['toolbar_bg']};
+            color: {t['text_secondary']};
+            border: none;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            border-bottom-left-radius: 0px;
+            border-bottom-right-radius: 0px;
+            padding: 12px 24px;
+            font-size: 13pt;
+            font-weight: normal;
+            text-align: center;
+            outline: 0;
+        }}
+        QPushButton:hover {{
+            color: {t['text_primary']};
+            background: {t['list_hover_bg']};
+        }}
+        """,
+    }
+
+
+# ===========================================================================
+# 画板视图 QSS（工具栏 / 工具按钮 / 调色板 / 画布 / 状态栏 / 滑块）
+# ===========================================================================
+
+def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
+    """返回画板视图样式：
+    {'toolbar', 'tool_group_label', 'tool_button', 'tool_button_checked',
+     'color_swatch', 'color_swatch_active', 'canvas_view', 'status_bar', 'slider'}
+
+    颜色约定：
+    - 工具栏背景：toolbar_bg
+    - 工具按钮 hover：list_hover_bg
+    - 工具按钮 checked：primary
+    - 调色板边框：border
+    - 状态栏文字：text_secondary
+    - 画布视图背景：固定 #E0E0E0（衬托白色画布）
+    """
+    return {
+        "toolbar": f"""
+        QFrame#drawing_toolbar {{
+            background: {t['toolbar_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 10px;
+        }}
+        QFrame#drawing_group {{
+            background: transparent;
+            border: none;
+        }}
+        """,
+        "tool_group_label": f"""
+        color: {t['text_secondary']};
+        background: transparent;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 4px;
+        """,
+        "tool_button": f"""
+        QPushButton {{
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            color: {t['text_primary']};
+            min-width: 28px;
+            min-height: 24px;
+        }}
+        QPushButton:hover {{
+            background: {t['list_hover_bg']};
+            border: 1px solid {t['primary']};
+            color: {t['primary_text']};
+        }}
+        QPushButton:pressed {{
+            background: {t['selection_bg']};
+        }}
+        """,
+        "tool_button_checked": f"""
+        QPushButton {{
+            background: {t['primary']};
+            border: 1px solid {t['primary']};
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            color: #FFFFFF;
+            font-weight: 600;
+            min-width: 28px;
+            min-height: 24px;
+        }}
+        QPushButton:hover {{
+            background: {t['primary_hover_top']};
+            border: 1px solid {t['primary']};
+            color: #FFFFFF;
+        }}
+        QPushButton:pressed {{
+            background: {t['primary_pressed_top']};
+        }}
+        """,
+        "color_swatch": f"""
+        QPushButton {{
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 6px;
+            min-width: 22px;
+            min-height: 22px;
+            max-width: 22px;
+            max-height: 22px;
+            padding: 0px;
+        }}
+        QPushButton:hover {{
+            border: 2px solid {t['primary']};
+            border-radius: 6px;
+        }}
+        """,
+        "color_swatch_active": f"""
+        QPushButton {{
+            border: 2px solid {t['primary']};
+            border-radius: 6px;
+            min-width: 22px;
+            min-height: 22px;
+            max-width: 22px;
+            max-height: 22px;
+            padding: 0px;
+        }}
+        """,
+        # 画布视图背景固定灰色，衬托白色画布（符合 Windows 画图习惯）
+        "canvas_view": f"""
+        QGraphicsView {{
+            background: #E0E0E0;
+            border: 1px solid {t['border']};
+            border-radius: 8px;
+        }}
+        """,
+        "status_bar": f"""
+        QLabel {{
+            color: {t['text_secondary']};
+            background: {t['status_bar_bg']};
+            border-top: 1px solid {t['border']};
+            padding: 4px 10px;
+            font-size: 12px;
+        }}
+        """,
+        "slider": f"""
+        QSlider::groove:horizontal {{
+            border: none;
+            height: 4px;
+            background: {t['border']};
+            border-radius: 2px;
+        }}
+        QSlider::sub-page:horizontal {{
+            background: {t['primary']};
+            border-radius: 2px;
+        }}
+        QSlider::handle:horizontal {{
+            background: {t['card_bg']};
+            border: 1px solid {t['primary']};
+            width: 14px;
+            height: 14px;
+            margin: -6px 0;
+            border-radius: 7px;
+        }}
+        QSlider::handle:horizontal:hover {{
+            background: {t['primary']};
+        }}
+        """,
+    }

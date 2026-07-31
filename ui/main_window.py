@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QHBoxLayout, QSplitter, QStatusBar, QLabel,
-    QMessageBox, QGraphicsDropShadowEffect
+    QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QStatusBar,
+    QLabel, QMessageBox, QGraphicsDropShadowEffect, QStackedWidget
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QKeySequence, QShortcut, QColor
@@ -8,6 +8,8 @@ from typing import Optional
 from core.database import DatabaseManager, Note
 from .sidebar import Sidebar
 from .editor import MarkdownEditor
+from .top_tab_bar import TopTabBar
+from .drawing_board import DrawingBoardView
 from .theme import THEMES, DEFAULT_THEME, get_mainwindow_qss
 
 
@@ -18,6 +20,9 @@ class MainWindow(QMainWindow):
         self.current_theme = theme_name
         self.current_note_id: Optional[int] = None
         self._pending_save = False
+        # 画板视图懒加载（首次切换到「画板」时创建）
+        self.drawing_view: Optional[DrawingBoardView] = None
+        self._drawing_placeholder: Optional[QWidget] = None
         self._build_ui()
         self.apply_theme_to_all(theme_name)
         self._build_shortcuts()
@@ -29,10 +34,21 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(960, 600)
         central = QWidget()
         self.setCentralWidget(central)
-        root = QHBoxLayout(central)
+        root = QVBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # 1. 顶部 Tab 切换栏（📝 笔记 / 🖌 画板）
+        self.tab_bar = TopTabBar(theme_name=self.current_theme)
+        self.tab_bar.view_changed.connect(self._on_view_changed)
+        root.addWidget(self.tab_bar)
+
+        # 2. 下方 QStackedWidget：page 0 = 笔记视图，page 1 = 画板视图（懒加载）
+        self.stack = QStackedWidget()
+        self.stack.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(self.stack, 1)
+
+        # ---- page 0：原 QSplitter(sidebar + editor) → NoteView ----
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(4)
@@ -55,7 +71,14 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([340, 900])
 
-        root.addWidget(splitter)
+        self.stack.addWidget(splitter)  # index 0
+
+        # ---- page 1：画板占位（首次切换时替换为 DrawingBoardView）----
+        self._drawing_placeholder = QWidget()
+        self.stack.addWidget(self._drawing_placeholder)  # index 1
+
+        # 默认显示笔记视图
+        self.stack.setCurrentIndex(0)
 
         self.status = QStatusBar()
         self.setStatusBar(self.status)
@@ -72,6 +95,32 @@ class MainWindow(QMainWindow):
         self.editor.content_changed.connect(self._on_editor_content_changed)
         self.editor.category_changed.connect(self._on_editor_category_changed)
 
+    # -------------------------------------------------------------------
+    # 视图切换（笔记 / 画板）
+    # -------------------------------------------------------------------
+    def _on_view_changed(self, view: str):
+        """切换 QStackedWidget 页面，首次切换到 drawing 时创建画板视图。"""
+        if view == "drawing":
+            self._ensure_drawing_view()
+            self.stack.setCurrentIndex(1)
+        else:
+            self.stack.setCurrentIndex(0)
+
+    def _ensure_drawing_view(self):
+        """懒加载创建画板视图，替换占位 widget。"""
+        if self.drawing_view is not None:
+            return
+        self.drawing_view = DrawingBoardView(self.db, theme_name=self.current_theme)
+        self.drawing_view.apply_theme(self.current_theme)
+        self.drawing_view.insert_to_note_requested.connect(self._insert_drawing_to_note)
+        # 替换占位 widget（保持 index=1）
+        idx = self.stack.indexOf(self._drawing_placeholder) if self._drawing_placeholder else 1
+        if self._drawing_placeholder is not None:
+            self.stack.removeWidget(self._drawing_placeholder)
+            self._drawing_placeholder.deleteLater()
+            self._drawing_placeholder = None
+        self.stack.insertWidget(idx, self.drawing_view)
+
     def apply_theme_to_all(self, theme_name: str):
         self.current_theme = theme_name
         t = THEMES[theme_name]
@@ -83,6 +132,11 @@ class MainWindow(QMainWindow):
         )
         self.sidebar.apply_theme(theme_name)
         self.editor.apply_theme(theme_name)
+        # 顶部 Tab 栏同步主题
+        self.tab_bar.apply_theme(theme_name)
+        # 画板视图同步主题（如已创建）
+        if self.drawing_view is not None:
+            self.drawing_view.apply_theme(theme_name)
 
     def _build_shortcuts(self):
         new_sc = QShortcut(QKeySequence.StandardKey.New, self)
@@ -201,7 +255,35 @@ class MainWindow(QMainWindow):
     def _update_status(self, msg: str):
         self.status.showMessage(msg, 4000)
 
+    # -------------------------------------------------------------------
+    # 画板内容嵌入当前笔记
+    # -------------------------------------------------------------------
+    def _insert_drawing_to_note(self):
+        """将画板内容保存为图片并插入当前笔记的光标处。"""
+        if self.drawing_view is None:
+            return
+        if not self.drawing_view.has_unsaved_content():
+            self._update_status("⚠️ 画板为空，无内容可插入")
+            return
+        if not self.current_note_id:
+            self._update_status("⚠️ 请先打开或新建一篇笔记")
+            return
+        try:
+            md_path = self.drawing_view.insert_to_current_note(self.current_note_id)
+        except Exception as e:
+            self._update_status(f"⚠️ 插入画板失败：{e}")
+            return
+        if not md_path:
+            self._update_status("⚠️ 插入画板失败：未生成图片路径")
+            return
+        # 切回笔记视图并插入图片引用
+        self.tab_bar.set_current("note")
+        self.stack.setCurrentIndex(0)
+        self.editor.insert_image_at_cursor(md_path, alt="drawing")
+        self._update_status(f"✅ 画板已插入笔记：{md_path}")
+
     def closeEvent(self, event):
+        # 笔记未保存内容确认
         if self._pending_save and self.current_note_id:
             reply = QMessageBox.question(
                 self, "保存确认", "是否保存当前笔记的更改？",
@@ -215,4 +297,18 @@ class MainWindow(QMainWindow):
                 return
             if reply == QMessageBox.StandardButton.Save:
                 self._force_save_current()
+        # 画板未保存内容确认
+        if self.drawing_view is not None and self.drawing_view.has_unsaved_content():
+            reply = QMessageBox.question(
+                self, "画板内容", "画板上有未保存的内容，是否在退出前保存为文件？",
+                QMessageBox.StandardButton.Save |
+                QMessageBox.StandardButton.Discard |
+                QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save
+            )
+            if reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            if reply == QMessageBox.StandardButton.Save:
+                self.drawing_view._save_to_file()
         event.accept()

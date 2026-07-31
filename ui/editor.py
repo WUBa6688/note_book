@@ -1972,6 +1972,17 @@ class MarkdownEditor(QWidget):
     def _insert_text(self, txt):
         self.edit.textCursor().insertText(txt)
 
+    def insert_image_at_cursor(self, path: str, alt: str = "drawing"):
+        """在光标处插入 Markdown 图片引用并渲染（用于画板内容嵌入当前笔记）。
+
+        path 应为相对 assets 根目录的引用路径，如 './assets/note_1_images/xxx.png'。
+        """
+        cursor = self.edit.textCursor()
+        cursor.insertText(f"\n\n![{alt}]({path})\n\n")
+        self.edit.setTextCursor(cursor)
+        self._render_images_in_doc()
+        self._on_any_changed()
+
     def _prepend_line(self, prefix):
         cursor = self._get_cursor()
         cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)

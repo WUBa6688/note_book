@@ -300,3 +300,21 @@ def zhuibook_demo():
             self.close()
         except Exception:
             pass
+
+
+def save_drawing_to_note_assets(note_id: int, pixmap) -> str:
+    """将 QPixmap 保存到笔记的 assets 目录，返回相对路径用于 Markdown 引用。
+
+    兼容 QPixmap / QImage 入参（二者均有 save() 方法）。
+    """
+    import uuid
+    from datetime import datetime
+    assets_dir = get_assets_dir(note_id)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    random_suffix = uuid.uuid4().hex[:6]
+    filename = f"drawing_{timestamp}_{random_suffix}.png"
+    filepath = os.path.join(assets_dir, filename)
+    # 保存 pixmap 为 PNG（QPixmap / QImage 均支持 save）
+    pixmap.save(filepath, "PNG")
+    # 返回相对路径（用于笔记内引用）
+    return f"./assets/note_{int(note_id)}_images/{filename}"
