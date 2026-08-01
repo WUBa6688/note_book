@@ -25,22 +25,22 @@ from typing import List, Optional, Tuple, Dict, Any
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QRectF, QPointF, QPoint
 from PyQt6.QtGui import (
     QColor, QPen, QBrush, QPixmap, QPainter, QFont, QMouseEvent, QImage,
-    QCursor, QKeySequence, QUndoCommand, QUndoStack
+    QCursor, QKeySequence, QUndoCommand, QUndoStack, QIcon
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QPushButton, QLabel, QSlider,
     QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsItem,
     QGraphicsPixmapItem, QGraphicsTextItem, QSizePolicy, QSpacerItem,
     QColorDialog, QFileDialog, QMessageBox, QButtonGroup, QMenu, QApplication,
-    QLayout, QLayoutItem, QGridLayout
+    QLayout, QLayoutItem, QGridLayout, QStackedWidget, QToolButton
 )
 
 from core.database import DatabaseManager, get_assets_dir, get_assets_root
 from .theme import THEMES, DEFAULT_THEME, get_drawing_board_qss
-from .collapsible_section import CollapsibleSection
 from .drawing_ruler import HorizontalRuler, VerticalRuler
 from .drawing_text_editor import TextFormatToolbar
 from .drawing_cursors import create_tool_cursor
+from .drawing_icons import DrawingIcon
 
 
 # ===========================================================================
@@ -423,10 +423,14 @@ class DrawingBoardView(QWidget):
         # ---- V4 新增状态 ----
         self.wheel_zoom_enabled: bool = False  # 滚轮缩放开关
         self.show_grid: bool = False  # 显示网格（右键菜单切换）
-        self._sections: List["CollapsibleSection"] = []
         self.text_toolbar: Optional[TextFormatToolbar] = None
         self.h_ruler: Optional[HorizontalRuler] = None
         self.v_ruler: Optional[VerticalRuler] = None
+        # Tab / 左侧工具栏
+        self._tab_group: Optional[QButtonGroup] = None
+        self.tool_stack: Optional[QStackedWidget] = None
+        self.top_bar: Optional[QFrame] = None
+        self.left_toolbar: Optional[QFrame] = None
 
         # ---- 撤销栈（限制 50 步）----
         self.undo_stack = QUndoStack(self)
@@ -453,123 +457,238 @@ class DrawingBoardView(QWidget):
     # -------------------------------------------------------------------
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(8)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # 顶部工具栏（6 个 CollapsibleSection，QGridLayout 2 列布局）
-        self.toolbar = QFrame()
-        self.toolbar.setObjectName("drawing_toolbar")
-        toolbar_outer = QVBoxLayout(self.toolbar)
-        toolbar_outer.setContentsMargins(6, 6, 6, 6)
-        toolbar_outer.setSpacing(6)
+        # 顶部栏：快捷操作 + Tab 切换
+        self._build_top_bar(root)
 
-        # 使用 QGridLayout 2 列布局，确保布局稳定不跳行
-        grid = QGridLayout()
-        grid.setSpacing(6)
-        grid.setContentsMargins(0, 0, 0, 0)
+        # 中间区：左侧工具栏 + 画布
+        middle = QHBoxLayout()
+        middle.setContentsMargins(0, 0, 0, 0)
+        middle.setSpacing(0)
 
-        self._sections: List["CollapsibleSection"] = []
-
-        # 1. 文件 (row 0, col 0)
-        sec = CollapsibleSection("文件")
-        self._build_group(sec, _FILE_TOOLS, checkable=False, tooltips=_FILE_TOOLTIPS)
-        self._sections.append(sec)
-        grid.addWidget(sec, 0, 0)
-
-        # 2. 绘制工具 (row 0, col 1)
-        sec = CollapsibleSection("绘制工具")
-        _draw_tools = [
-            ("pen", "画笔"), ("airbrush", "喷枪"), ("brush", "刷子"),
-            ("eraser", "橡皮"), ("color_picker", "取色"), ("fill", "填充"), ("text", "文字"),
-        ]
-        self._build_group(sec, _draw_tools, checkable=True, tooltips=_DRAW_TOOLTIPS)
-        self._sections.append(sec)
-        grid.addWidget(sec, 0, 1)
-
-        # 3. 形状工具 (row 1, col 0)
-        sec = CollapsibleSection("形状工具")
-        self._build_group(sec, _SHAPE_TOOLS, checkable=True, tooltips=_SHAPE_TOOLTIPS)
-        self._sections.append(sec)
-        grid.addWidget(sec, 1, 0)
-
-        # 4. 颜色样式 (row 1, col 1)
-        sec = CollapsibleSection("颜色样式")
-        self._build_color_section(sec)
-        self._sections.append(sec)
-        grid.addWidget(sec, 1, 1)
-
-        # 5. 选择操作 (row 2, col 0)
-        sec = CollapsibleSection("选择操作")
-        self._build_select_ops_section(sec)
-        self._sections.append(sec)
-        grid.addWidget(sec, 2, 0)
-
-        # 6. 视图控制 (row 2, col 1)
-        sec = CollapsibleSection("视图控制")
-        self._build_view_section(sec)
-        self._sections.append(sec)
-        grid.addWidget(sec, 2, 1)
-
-        # 让两列等宽
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-
-        toolbar_outer.addLayout(grid)
-
-        # 保存 grid 布局引用用于主题更新
-        self.toolbar_layout = grid
-
-        root.addWidget(self.toolbar)
-
-        # 富文本格式工具栏（画布上方，初始隐藏）
-        self.text_toolbar = TextFormatToolbar(self)
-        root.addWidget(self.text_toolbar)
+        # 左侧垂直工具栏（QStackedWidget，跟随 Tab 切换）
+        self._build_left_toolbar(middle)
 
         # 画布区（含比例尺）
-        self._build_canvas_area(root)
+        canvas_container = QWidget()
+        canvas_layout = QVBoxLayout(canvas_container)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setSpacing(0)
+        # 富文本格式工具栏（画布上方，初始隐藏）
+        self.text_toolbar = TextFormatToolbar(self)
+        canvas_layout.addWidget(self.text_toolbar)
+        self._build_canvas_area(canvas_layout)
+        middle.addWidget(canvas_container, 1)
+
+        root.addLayout(middle, 1)
 
         # 状态栏
         self.status_label = QLabel("就绪 · 画布 800×600 · 缩放 100% · 工具：画笔 · 滚轮缩放: 关")
         self.status_label.setObjectName("drawing_status")
         root.addWidget(self.status_label)
 
-    def _build_group(self, section: "CollapsibleSection", tools: List[Tuple[str, str]],
-                     checkable: bool, tooltips: Optional[Dict[str, str]] = None):
-        """构建一组按钮放入指定 CollapsibleSection（内部用 FlowLayout 自动换行）。
+    # -------------------------------------------------------------------
+    # 顶部栏
+    # -------------------------------------------------------------------
+    def _build_top_bar(self, root_layout: QVBoxLayout):
+        """顶部栏：左侧快捷操作（撤销/重做/清空）+ 右侧 Tab 切换。"""
+        self.top_bar = QFrame()
+        self.top_bar.setObjectName("drawing_top_bar")
+        self.top_bar.setFixedHeight(48)
+        layout = QHBoxLayout(self.top_bar)
+        layout.setContentsMargins(8, 0, 8, 0)
+        layout.setSpacing(4)
 
-        保留原有的按钮创建 / checkable / ButtonGroup 互斥逻辑，
-        只是把按钮放入 section 而非直接加入 toolbar_layout。
-        """
-        container = QWidget()
-        flow = FlowLayout(container, margin=4, h_spacing=8, v_spacing=8)
-        for name, text in tools:
-            btn = QPushButton(text)
-            btn.setObjectName(f"tool_{name}")
+        # 左侧：快捷操作按钮
+        quick_actions = [
+            ("undo", "撤销 (Ctrl+Z)"),
+            ("redo", "重做 (Ctrl+Y)"),
+            ("clear", "清空画布"),
+        ]
+        for name, tooltip in quick_actions:
+            btn = QToolButton()
+            btn.setObjectName("tool_quick_action")
+            btn.setIcon(QIcon(DrawingIcon.create(name)))
+            btn.setIconSize(QSize(18, 18))
+            btn.setFixedSize(34, 34)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setProperty("tool_name", name)
-            if tooltips and name in tooltips:
-                btn.setToolTip(tooltips[name])
-            if checkable:
-                btn.setCheckable(True)
-                self._tool_btn_group.addButton(btn)
-                self._tool_btn_group.setId(btn, len(self._tool_buttons))
-            else:
-                # 操作/视图/文件按钮通过 clicked 信号处理
-                btn.clicked.connect(lambda _checked=False, n=name: self._on_action_clicked(n))
-            self._tool_buttons[name] = btn
-            flow.addWidget(btn)
-        section.addWidget(container)
+            btn.setToolTip(tooltip)
+            btn.clicked.connect(lambda n=name: self._on_action_clicked(n))
+            layout.addWidget(btn)
 
-    def _build_color_section(self, section: "CollapsibleSection"):
-        """颜色样式分组：主/次色 + 调色板 + 自定义色 + 粗细 + 空心/实心。"""
-        row = QFrame()
-        row.setObjectName("drawing_group")
-        fl = FlowLayout(row, margin=4, h_spacing=6, v_spacing=4)
+        # 分隔线
+        sep = QFrame()
+        sep.setFixedWidth(1)
+        sep.setFixedHeight(28)
+        sep.setObjectName("top_bar_separator")
+        layout.addSpacing(4)
+        layout.addWidget(sep)
+        layout.addSpacing(4)
 
-        # 主色/次色叠加显示
+        # 右侧：Tab 按钮
+        self._tab_group = QButtonGroup(self)
+        self._tab_group.setExclusive(True)
+        tab_names = ["文件", "绘制", "形状", "颜色", "视图"]
+        for i, tab_name in enumerate(tab_names):
+            btn = QPushButton(tab_name)
+            btn.setCheckable(True)
+            btn.setObjectName("drawing_tab")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFixedHeight(32)
+            self._tab_group.addButton(btn, i)
+            layout.addWidget(btn)
+
+        self._tab_group.idClicked.connect(self._on_tab_changed)
+        layout.addStretch()
+
+        # 默认选中"绘制" Tab（index 1）
+        self._tab_group.button(1).setChecked(True)
+
+        root_layout.addWidget(self.top_bar)
+
+    # -------------------------------------------------------------------
+    # 左侧垂直工具栏
+    # -------------------------------------------------------------------
+    def _build_left_toolbar(self, middle_layout: QHBoxLayout):
+        """左侧垂直工具栏：QStackedWidget 随 Tab 切换显示不同工具面板。"""
+        self.left_toolbar = QFrame()
+        self.left_toolbar.setObjectName("drawing_left_toolbar")
+        self.left_toolbar.setFixedWidth(56)
+
+        layout = QVBoxLayout(self.left_toolbar)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+
+        self.tool_stack = QStackedWidget()
+
+        # 页面 0：文件
+        self.tool_stack.addWidget(self._build_file_panel())
+        # 页面 1：绘制（默认显示）
+        self.tool_stack.addWidget(self._build_draw_panel())
+        # 页面 2：形状
+        self.tool_stack.addWidget(self._build_shape_panel())
+        # 页面 3：颜色
+        self.tool_stack.addWidget(self._build_color_panel())
+        # 页面 4：视图
+        self.tool_stack.addWidget(self._build_view_panel())
+
+        self.tool_stack.setCurrentIndex(1)
+        layout.addWidget(self.tool_stack)
+        layout.addStretch()
+
+        middle_layout.addWidget(self.left_toolbar)
+
+    def _on_tab_changed(self, tab_id: int):
+        """Tab 切换：更新左侧工具栏显示的面板。"""
+        self.tool_stack.setCurrentIndex(tab_id)
+
+    # -------------------------------------------------------------------
+    # 工具按钮创建辅助
+    # -------------------------------------------------------------------
+    def _make_tool_btn(self, name: str, icon_name: str = "", checkable: bool = False,
+                       tooltip: str = "") -> QToolButton:
+        """创建一个 QToolButton 图标按钮，注册到 _tool_buttons dict。"""
+        btn = QToolButton()
+        btn.setObjectName(f"tool_{name}")
+        btn.setProperty("tool_name", name)
+        btn.setIcon(QIcon(DrawingIcon.create(icon_name or name)))
+        btn.setIconSize(QSize(20, 20))
+        btn.setFixedSize(44, 40)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        if tooltip:
+            btn.setToolTip(tooltip)
+        if checkable:
+            btn.setCheckable(True)
+            self._tool_btn_group.addButton(btn)
+            self._tool_btn_group.setId(btn, len(self._tool_buttons))
+        else:
+            btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
+        self._tool_buttons[name] = btn
+        return btn
+
+    # -------------------------------------------------------------------
+    # 面板构建方法
+    # -------------------------------------------------------------------
+    def _build_file_panel(self) -> QWidget:
+        """文件 Tab：保存为文件 + 插入到笔记。"""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setSpacing(2)
+        for name, tooltip in [
+            ("save_file", _FILE_TOOLTIPS.get("save_file", "")),
+            ("insert_note", _FILE_TOOLTIPS.get("insert_note", "")),
+        ]:
+            btn = self._make_tool_btn(name, name, checkable=False, tooltip=tooltip)
+            layout.addWidget(btn)
+        layout.addStretch()
+        return panel
+
+    def _build_draw_panel(self) -> QWidget:
+        """绘制 Tab：画笔/喷枪/刷子/橡皮/取色/填充/文字 + 分隔线 + 矩形选择/自由选择。"""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setSpacing(2)
+
+        draw_tools = [
+            ("pen", _DRAW_TOOLTIPS), ("airbrush", _DRAW_TOOLTIPS), ("brush", _DRAW_TOOLTIPS),
+            ("eraser", _DRAW_TOOLTIPS), ("color_picker", _DRAW_TOOLTIPS),
+            ("fill", _DRAW_TOOLTIPS), ("text", _DRAW_TOOLTIPS),
+        ]
+        for name, tips in draw_tools:
+            btn = self._make_tool_btn(name, name, checkable=True, tooltip=tips.get(name, ""))
+            layout.addWidget(btn)
+
+        # 分隔线
+        sep = QFrame()
+        sep.setFixedHeight(1)
+        sep.setObjectName("left_toolbar_separator")
+        layout.addSpacing(4)
+        layout.addWidget(sep)
+        layout.addSpacing(4)
+
+        # 选择工具
+        for name, tooltip in [("rect_select", "矩形选择 - 框选图形"), ("free_select", "自由选择 - 自由曲线选区")]:
+            btn = self._make_tool_btn(name, name, checkable=True, tooltip=tooltip)
+            layout.addWidget(btn)
+
+        layout.addStretch()
+        return panel
+
+    def _build_shape_panel(self) -> QWidget:
+        """形状 Tab：直线/曲线/矩形/圆角矩形/椭圆/三角形/星形/箭头/对话框。"""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setSpacing(2)
+
+        for name, tooltip in _SHAPE_TOOLTIPS.items():
+            # 查找 _SHAPE_TOOLS 中对应的按钮名
+            shape_name = name
+            for sn, _ in _SHAPE_TOOLS:
+                if sn == name:
+                    shape_name = sn
+                    break
+            btn = self._make_tool_btn(shape_name, shape_name, checkable=True, tooltip=tooltip)
+            layout.addWidget(btn)
+
+        layout.addStretch()
+        return panel
+
+    def _build_color_panel(self) -> QWidget:
+        """颜色 Tab：主/次色 + 2 列色板网格 + 自定义色 + 垂直粗细滑块 + 空心/实心。"""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setSpacing(4)
+
+        # 主色/次色叠加
         self.primary_swatch = QPushButton()
         self.primary_swatch.setObjectName("primary_swatch")
-        self.primary_swatch.setFixedSize(34, 34)
+        self.primary_swatch.setFixedSize(22, 22)
         self.primary_switch = QPushButton()
         self.primary_swatch.setCursor(Qt.CursorShape.PointingHandCursor)
         self.primary_switch.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -578,23 +697,28 @@ class DrawingBoardView(QWidget):
         self.primary_swatch.setToolTip("主色（左键绘制颜色），点击切换为激活色")
         self.primary_switch.setToolTip("次色（右键绘制颜色），点击切换为激活色")
         self.primary_switch.setObjectName("primary_switch")
-        self.primary_switch.setFixedSize(34, 34)
-        # 叠加：把两个色块用样式表示，主色在前/次色在后；用透明叠放
+        self.primary_switch.setFixedSize(22, 22)
         wrap = QFrame()
-        wrap.setFixedSize(44, 40)
+        wrap.setFixedSize(48, 28)
         wrap_layout = QHBoxLayout(wrap)
         wrap_layout.setContentsMargins(2, 2, 2, 2)
         wrap_layout.setSpacing(2)
         wrap_layout.addWidget(self.primary_swatch)
         wrap_layout.addWidget(self.primary_switch)
-        wrap_layout.setSpacing(-10)
-        fl.addWidget(wrap)
+        layout.addWidget(wrap, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # 预设调色板
-        pal_label = QLabel("色板")
-        pal_label.setObjectName("drawing_group_label")
-        fl.addWidget(pal_label)
-        for name, hex_color in _PALETTE:
+        # 分隔线
+        sep1 = QFrame()
+        sep1.setFixedHeight(1)
+        sep1.setObjectName("left_toolbar_separator")
+        layout.addWidget(sep1)
+
+        # 调色板 2 列网格
+        pal_container = QWidget()
+        pal_grid = QGridLayout(pal_container)
+        pal_grid.setContentsMargins(0, 0, 0, 0)
+        pal_grid.setSpacing(2)
+        for i, (name, hex_color) in enumerate(_PALETTE):
             sw = QPushButton()
             sw.setObjectName(f"swatch_{name}")
             sw.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -605,97 +729,130 @@ class DrawingBoardView(QWidget):
             sw.clicked.connect(lambda _c=False, b=sw: self._on_palette_clicked(b))
             self._palette_group.addButton(sw)
             self._palette_buttons[name] = sw
-            fl.addWidget(sw)
+            row, col = divmod(i, 2)
+            pal_grid.addWidget(sw, row, col)
+        layout.addWidget(pal_container, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # 分隔线
+        sep2 = QFrame()
+        sep2.setFixedHeight(1)
+        sep2.setObjectName("left_toolbar_separator")
+        layout.addWidget(sep2)
 
         # 自定义颜色按钮
-        self.custom_color_btn = QPushButton("🎨 自定义")
+        self.custom_color_btn = QToolButton()
         self.custom_color_btn.setObjectName("tool_custom_color")
+        self.custom_color_btn.setIcon(QIcon(DrawingIcon.create("custom_color")))
+        self.custom_color_btn.setIconSize(QSize(20, 20))
+        self.custom_color_btn.setFixedSize(44, 40)
         self.custom_color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.custom_color_btn.setToolTip("自定义颜色")
         self.custom_color_btn.clicked.connect(self._on_custom_color)
-        fl.addWidget(self.custom_color_btn)
+        self._tool_buttons["custom_color"] = self.custom_color_btn  # type: ignore
+        layout.addWidget(self.custom_color_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # 粗细滑块
+        # 分隔线
+        sep3 = QFrame()
+        sep3.setFixedHeight(1)
+        sep3.setObjectName("left_toolbar_separator")
+        layout.addWidget(sep3)
+
+        # 粗细标签 + 滑块（垂直）
         thick_label = QLabel("粗细")
         thick_label.setObjectName("drawing_group_label")
-        fl.addWidget(thick_label)
-        self.thickness_slider = QSlider(Qt.Orientation.Horizontal)
+        thick_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        thick_label.setFixedHeight(16)
+        layout.addWidget(thick_label)
+        self.thickness_slider = QSlider(Qt.Orientation.Vertical)
         self.thickness_slider.setRange(1, 30)
         self.thickness_slider.setValue(self.pen_width)
-        self.thickness_slider.setFixedWidth(120)
+        self.thickness_slider.setFixedHeight(80)
+        self.thickness_slider.setFixedWidth(36)
         self.thickness_slider.valueChanged.connect(self._on_thickness_changed)
-        fl.addWidget(self.thickness_slider)
+        layout.addWidget(self.thickness_slider, alignment=Qt.AlignmentFlag.AlignCenter)
         self.thickness_value_label = QLabel(f"{self.pen_width}px")
         self.thickness_value_label.setObjectName("drawing_group_label")
-        self.thickness_value_label.setMinimumWidth(34)
-        fl.addWidget(self.thickness_value_label)
+        self.thickness_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.thickness_value_label.setFixedHeight(16)
+        layout.addWidget(self.thickness_value_label)
 
-        # 填充模式切换（空心/实心）
-        self.fill_btn = QPushButton("▢ 空心")
+        # 填充模式切换
+        self.fill_btn = QToolButton()
         self.fill_btn.setObjectName("tool_fill_toggle")
+        self.fill_btn.setIcon(QIcon(DrawingIcon.create("fill_toggle")))
+        self.fill_btn.setIconSize(QSize(20, 20))
+        self.fill_btn.setFixedSize(44, 40)
         self.fill_btn.setCheckable(True)
         self.fill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.fill_btn.setToolTip("切换形状填充模式：空心 / 实心（仅形状工具有效）")
         self.fill_btn.clicked.connect(self._on_fill_toggled)
-        fl.addWidget(self.fill_btn)
+        self._tool_buttons["fill_toggle"] = self.fill_btn  # type: ignore
+        layout.addWidget(self.fill_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        fl.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
-        row.setLayout(fl)
-        section.addWidget(row)
+        layout.addStretch()
+        return panel
 
-    def _build_select_ops_section(self, section: "CollapsibleSection"):
-        """选择操作分组：矩形/自由选择（互斥）+ 选择/剪贴板/撤销动作。"""
-        container = QWidget()
-        flow = FlowLayout(container, margin=2, h_spacing=6, v_spacing=6)
-        # 互斥选择工具
-        for name, text in [("rect_select", "矩形选择"), ("free_select", "自由选择")]:
-            btn = QPushButton(text)
-            btn.setObjectName(f"tool_{name}")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setProperty("tool_name", name)
-            btn.setCheckable(True)
-            btn.setToolTip(_SELECT_TOOLTIPS.get(name, ""))
-            self._tool_btn_group.addButton(btn)
-            self._tool_btn_group.setId(btn, len(self._tool_buttons))
-            self._tool_buttons[name] = btn
-            flow.addWidget(btn)
-        # 动作按钮
-        for name, text in [
-            ("select_all", "全选"), ("copy", "复制"), ("cut", "剪切"), ("paste", "粘贴"),
-            ("delete", "删除"), ("undo", "撤销"), ("redo", "重做"), ("clear", "清空"),
-        ]:
-            btn = QPushButton(text)
-            btn.setObjectName(f"tool_{name}")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setProperty("tool_name", name)
-            btn.setToolTip(_SELECT_TOOLTIPS.get(name, ""))
-            btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
-            self._tool_buttons[name] = btn
-            flow.addWidget(btn)
-        section.addWidget(container)
+    def _build_view_panel(self) -> QWidget:
+        """视图 Tab：放大/缩小/100%/适应窗口 + 滚轮缩放开关 + 复制/剪切/粘贴/全选/删除。"""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(2, 4, 2, 4)
+        layout.setSpacing(2)
 
-    def _build_view_section(self, section: "CollapsibleSection"):
-        """视图控制分组：放大/缩小/100%/适应窗口 + 滚轮缩放开关。"""
-        container = QWidget()
-        flow = FlowLayout(container, margin=2, h_spacing=6, v_spacing=6)
-        for name, text in _VIEW_TOOLS:
-            btn = QPushButton(text)
-            btn.setObjectName(f"tool_{name}")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setProperty("tool_name", name)
-            btn.setToolTip(_VIEW_TOOLTIPS.get(name, ""))
-            btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
-            self._tool_buttons[name] = btn
-            flow.addWidget(btn)
-        # 滚轮缩放开关（可勾选，不加入互斥工具组）
-        wz = QPushButton("滚轮缩放: 关")
+        # 缩放工具
+        view_tools = [
+            ("zoom_in", "放大 - 放大画布"),
+            ("zoom_out", "缩小 - 缩小画布"),
+            ("zoom_100", "100% - 重置缩放"),
+            ("zoom_fit", "适应窗口 - 适配窗口大小"),
+        ]
+        for name, tooltip in view_tools:
+            btn = self._make_tool_btn(name, name, checkable=False, tooltip=tooltip)
+            layout.addWidget(btn)
+
+        # 分隔线
+        sep1 = QFrame()
+        sep1.setFixedHeight(1)
+        sep1.setObjectName("left_toolbar_separator")
+        layout.addSpacing(4)
+        layout.addWidget(sep1)
+        layout.addSpacing(4)
+
+        # 滚轮缩放开关
+        wz = QToolButton()
         wz.setObjectName("tool_wheel_zoom_toggle")
+        wz.setIcon(QIcon(DrawingIcon.create("wheel_zoom")))
+        wz.setIconSize(QSize(20, 20))
+        wz.setFixedSize(44, 40)
         wz.setCursor(Qt.CursorShape.PointingHandCursor)
         wz.setCheckable(True)
         wz.setToolTip("切换滚轮缩放模式 (开: 滚轮直接缩放; 关: 滚轮平移, Ctrl+滚轮缩放)")
         wz.toggled.connect(self._toggle_wheel_zoom)
-        self._tool_buttons["wheel_zoom_toggle"] = wz
-        flow.addWidget(wz)
-        section.addWidget(container)
+        self._tool_buttons["wheel_zoom_toggle"] = wz  # type: ignore
+        layout.addWidget(wz)
+
+        # 分隔线
+        sep2 = QFrame()
+        sep2.setFixedHeight(1)
+        sep2.setObjectName("left_toolbar_separator")
+        layout.addSpacing(4)
+        layout.addWidget(sep2)
+        layout.addSpacing(4)
+
+        # 剪贴板操作
+        edit_tools = [
+            ("copy", "复制 (Ctrl+C) - 复制选中项"),
+            ("cut", "剪切 (Ctrl+X) - 剪切选中项"),
+            ("paste", "粘贴 (Ctrl+V) - 粘贴剪贴板"),
+            ("select_all", "全选 (Ctrl+A) - 选中所有图形"),
+            ("delete", "删除 (Delete) - 删除选中项"),
+        ]
+        for name, tooltip in edit_tools:
+            btn = self._make_tool_btn(name, name, checkable=False, tooltip=tooltip)
+            layout.addWidget(btn)
+
+        layout.addStretch()
+        return panel
 
     def _build_canvas_area(self, root_layout: QVBoxLayout):
         """画布区：顶部水平比例尺 + 左侧垂直比例尺 + 画布视图。"""
@@ -1220,10 +1377,11 @@ class DrawingBoardView(QWidget):
         self.current_theme = theme_name
         t = THEMES[theme_name]
         qss = get_drawing_board_qss(t)
-        self.toolbar.setStyleSheet(qss["toolbar"])
-        # 折叠分组面板
-        for sec in self._sections:
-            sec.apply_theme(t)
+        # 顶部栏 + 左侧工具栏
+        if self.top_bar is not None:
+            self.top_bar.setStyleSheet(qss["top_bar"])
+        if self.left_toolbar is not None:
+            self.left_toolbar.setStyleSheet(qss["left_toolbar"])
         # 比例尺
         if self.h_ruler is not None:
             self.h_ruler.setStyleSheet(qss["ruler"])
@@ -1235,30 +1393,14 @@ class DrawingBoardView(QWidget):
         if self.text_toolbar is not None:
             self.text_toolbar.setStyleSheet(qss["text_toolbar"])
             self.text_toolbar.apply_theme(t)
-        # 分组标签
-        for child in self.toolbar.findChildren(QLabel):
-            child.setStyleSheet(qss["tool_group_label"])
-        # 颜色行内的标签
-        cw = self.findChild(QFrame, "drawing_group")
-        if cw is not None:
-            for lbl in cw.findChildren(QLabel):
-                lbl.setStyleSheet(qss["tool_group_label"])
-        # 工具按钮（区分选中/未选中）
+        # 工具按钮（QToolButton，区分选中/未选中）
+        icon_btn_qss = qss.get("tool_icon_btn", "")
+        icon_btn_checked_qss = qss.get("tool_icon_btn_checked", "")
         for name, btn in self._tool_buttons.items():
             if btn.isCheckable():
-                btn.setStyleSheet(qss["tool_button_checked"] if btn.isChecked() else qss["tool_button"])
+                btn.setStyleSheet(icon_btn_checked_qss if btn.isChecked() else icon_btn_qss)
             else:
-                btn.setStyleSheet(qss["tool_button"])
-        # 操作/视图/文件按钮（非互斥）
-        for name in [n for n, _ in (_OPERATION_TOOLS + _VIEW_TOOLS + _FILE_TOOLS)]:
-            btn = self._tool_buttons.get(name)
-            if btn is not None:
-                btn.setStyleSheet(qss["tool_button"])
-        # 自定义颜色按钮 / 填充按钮 / 粗细标签
-        if hasattr(self, "custom_color_btn"):
-            self.custom_color_btn.setStyleSheet(qss["tool_button"])
-        if hasattr(self, "fill_btn"):
-            self.fill_btn.setStyleSheet(qss["tool_button_checked"] if self.fill_btn.isChecked() else qss["tool_button"])
+                btn.setStyleSheet(icon_btn_qss)
         # 调色板色块
         for name, btn in self._palette_buttons.items():
             hex_color = btn._color_hex  # type: ignore
@@ -1275,6 +1417,15 @@ class DrawingBoardView(QWidget):
         # 粗细滑块
         self.thickness_slider.setStyleSheet(qss["slider"])
         self.thickness_value_label.setStyleSheet(qss["tool_group_label"])
+        # 分隔线
+        for sep in self.findChildren(QFrame, "top_bar_separator"):
+            sep.setStyleSheet(f"background: {t['border']};")
+        for sep in self.findChildren(QFrame, "left_toolbar_separator"):
+            sep.setStyleSheet(f"background: {t['border']};")
+        # 分组标签
+        for lbl in self.findChildren(QLabel):
+            if lbl.objectName() == "drawing_group_label":
+                lbl.setStyleSheet(qss["tool_group_label"])
 
     def _refresh_color_styles(self):
         """刷新主/次色块样式（叠加显示 + 激活态高亮）。"""

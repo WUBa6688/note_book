@@ -913,6 +913,76 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
             border: none;
         }}
         """,
+        "top_bar": f"""
+        QFrame#drawing_top_bar {{
+            background: {t['card_bg']};
+            border-bottom: 1px solid {t['border']};
+        }}
+        QToolButton#tool_quick_action {{
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+        }}
+        QToolButton#tool_quick_action:hover {{
+            background: {t['list_hover_bg']};
+        }}
+        QToolButton#tool_quick_action:pressed {{
+            background: {t['selection_bg']};
+        }}
+        QPushButton#drawing_tab {{
+            background: transparent;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 16px;
+            font-size: 13px;
+            color: {t['text_secondary']};
+        }}
+        QPushButton#drawing_tab:hover {{
+            background: {t['list_hover_bg']};
+            color: {t['text_primary']};
+        }}
+        QPushButton#drawing_tab:checked {{
+            background: {t['primary']};
+            color: #FFFFFF;
+            font-weight: 600;
+        }}
+        """,
+        "left_toolbar": f"""
+        QFrame#drawing_left_toolbar {{
+            background: {t['card_bg']};
+            border-right: 1px solid {t['border']};
+        }}
+        """,
+        "tool_icon_btn": f"""
+        QToolButton {{
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            padding: 6px;
+            margin: 1px;
+        }}
+        QToolButton:hover {{
+            background: {t['list_hover_bg']};
+        }}
+        QToolButton:pressed {{
+            background: {t['selection_bg']};
+        }}
+        """,
+        "tool_icon_btn_checked": f"""
+        QToolButton {{
+            background: {t['primary']};
+            border: none;
+            border-radius: 8px;
+            padding: 6px;
+            margin: 1px;
+        }}
+        QToolButton:hover {{
+            background: {t['primary_hover_top']};
+        }}
+        QToolButton:pressed {{
+            background: {t['primary_pressed_top']};
+        }}
+        """,
         "tool_group_label": f"""
         color: {t['text_secondary']};
         background: transparent;
