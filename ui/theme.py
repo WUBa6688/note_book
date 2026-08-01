@@ -925,11 +925,11 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
             background: {t['card_bg']};
             border: 1px solid {t['border']};
             border-radius: 8px;
-            padding: 6px 10px;
+            padding: 8px 12px;
             font-size: 12px;
             color: {t['text_primary']};
-            min-width: 28px;
-            min-height: 24px;
+            min-width: 32px;
+            min-height: 28px;
         }}
         QPushButton:hover {{
             background: {t['list_hover_bg']};
@@ -945,12 +945,12 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
             background: {t['primary']};
             border: 1px solid {t['primary']};
             border-radius: 8px;
-            padding: 6px 10px;
+            padding: 8px 12px;
             font-size: 12px;
             color: #FFFFFF;
             font-weight: bold;
-            min-width: 28px;
-            min-height: 24px;
+            min-width: 32px;
+            min-height: 28px;
         }}
         QPushButton:hover {{
             background: {t['primary_hover_top']};
@@ -989,10 +989,10 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
             padding: 0px;
         }}
         """,
-        # 画布视图背景固定灰色，衬托白色画布（符合 Windows 画图习惯）
+        # 画布视图背景使用主题 toolbar_bg，与整体风格协调
         "canvas_view": f"""
         QGraphicsView {{
-            background: #E0E0E0;
+            background: {t['toolbar_bg']};
             border: 1px solid {t['border']};
             border-radius: 8px;
         }}

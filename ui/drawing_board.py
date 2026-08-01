@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsItem,
     QGraphicsPixmapItem, QGraphicsTextItem, QSizePolicy, QSpacerItem,
     QColorDialog, QFileDialog, QMessageBox, QButtonGroup, QMenu, QApplication,
-    QLayout, QLayoutItem
+    QLayout, QLayoutItem, QGridLayout
 )
 
 from core.database import DatabaseManager, get_assets_dir, get_assets_root
@@ -453,60 +453,71 @@ class DrawingBoardView(QWidget):
     # -------------------------------------------------------------------
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(8)
 
-        # 顶部工具栏（6 个 CollapsibleSection，FlowLayout 自动换行）
+        # 顶部工具栏（6 个 CollapsibleSection，QGridLayout 2 列布局）
         self.toolbar = QFrame()
         self.toolbar.setObjectName("drawing_toolbar")
         toolbar_outer = QVBoxLayout(self.toolbar)
-        toolbar_outer.setContentsMargins(4, 4, 4, 4)
-        toolbar_outer.setSpacing(4)
-        sections_wrap = QWidget()
-        self.toolbar_layout = FlowLayout(sections_wrap, margin=4, h_spacing=6, v_spacing=6)
-        toolbar_outer.addWidget(sections_wrap)
+        toolbar_outer.setContentsMargins(6, 6, 6, 6)
+        toolbar_outer.setSpacing(6)
+
+        # 使用 QGridLayout 2 列布局，确保布局稳定不跳行
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        grid.setContentsMargins(0, 0, 0, 0)
 
         self._sections: List["CollapsibleSection"] = []
 
-        # 1. 文件
-        sec = CollapsibleSection("📁 文件")
+        # 1. 文件 (row 0, col 0)
+        sec = CollapsibleSection("文件")
         self._build_group(sec, _FILE_TOOLS, checkable=False, tooltips=_FILE_TOOLTIPS)
         self._sections.append(sec)
-        self.toolbar_layout.addWidget(sec)
+        grid.addWidget(sec, 0, 0)
 
-        # 2. 绘制工具
-        sec = CollapsibleSection("🖊 绘制工具")
+        # 2. 绘制工具 (row 0, col 1)
+        sec = CollapsibleSection("绘制工具")
         _draw_tools = [
             ("pen", "画笔"), ("airbrush", "喷枪"), ("brush", "刷子"),
             ("eraser", "橡皮"), ("color_picker", "取色"), ("fill", "填充"), ("text", "文字"),
         ]
         self._build_group(sec, _draw_tools, checkable=True, tooltips=_DRAW_TOOLTIPS)
         self._sections.append(sec)
-        self.toolbar_layout.addWidget(sec)
+        grid.addWidget(sec, 0, 1)
 
-        # 3. 形状工具
-        sec = CollapsibleSection("➡️ 形状工具")
+        # 3. 形状工具 (row 1, col 0)
+        sec = CollapsibleSection("形状工具")
         self._build_group(sec, _SHAPE_TOOLS, checkable=True, tooltips=_SHAPE_TOOLTIPS)
         self._sections.append(sec)
-        self.toolbar_layout.addWidget(sec)
+        grid.addWidget(sec, 1, 0)
 
-        # 4. 颜色样式
-        sec = CollapsibleSection("🎨 颜色样式")
+        # 4. 颜色样式 (row 1, col 1)
+        sec = CollapsibleSection("颜色样式")
         self._build_color_section(sec)
         self._sections.append(sec)
-        self.toolbar_layout.addWidget(sec)
+        grid.addWidget(sec, 1, 1)
 
-        # 5. 选择操作
-        sec = CollapsibleSection("🧭 选择操作")
+        # 5. 选择操作 (row 2, col 0)
+        sec = CollapsibleSection("选择操作")
         self._build_select_ops_section(sec)
         self._sections.append(sec)
-        self.toolbar_layout.addWidget(sec)
+        grid.addWidget(sec, 2, 0)
 
-        # 6. 视图控制
-        sec = CollapsibleSection("🔍 视图控制")
+        # 6. 视图控制 (row 2, col 1)
+        sec = CollapsibleSection("视图控制")
         self._build_view_section(sec)
         self._sections.append(sec)
-        self.toolbar_layout.addWidget(sec)
+        grid.addWidget(sec, 2, 1)
+
+        # 让两列等宽
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+
+        toolbar_outer.addLayout(grid)
+
+        # 保存 grid 布局引用用于主题更新
+        self.toolbar_layout = grid
 
         root.addWidget(self.toolbar)
 
@@ -530,7 +541,7 @@ class DrawingBoardView(QWidget):
         只是把按钮放入 section 而非直接加入 toolbar_layout。
         """
         container = QWidget()
-        flow = FlowLayout(container, margin=2, h_spacing=6, v_spacing=6)
+        flow = FlowLayout(container, margin=4, h_spacing=8, v_spacing=8)
         for name, text in tools:
             btn = QPushButton(text)
             btn.setObjectName(f"tool_{name}")
@@ -728,7 +739,6 @@ class DrawingBoardView(QWidget):
         self.view = _CanvasView(self)
         self.view.setScene(self.scene)
         self.view.setObjectName("drawing_canvas_view")
-        self.view.setBackgroundBrush(QColor("#E0E0E0"))
         self.view.setAlignment(Qt.AlignmentFlag.AlignCenter)
         middle_layout.addWidget(self.view, 1)
 
@@ -1259,7 +1269,7 @@ class DrawingBoardView(QWidget):
         self._refresh_color_styles()
         # 画布视图
         self.view.setStyleSheet(qss["canvas_view"])
-        self.view.setBackgroundBrush(QColor("#E0E0E0"))
+        self.view.setBackgroundBrush(QColor(t['toolbar_bg']))
         # 状态栏
         self.status_label.setStyleSheet(qss["status_bar"])
         # 粗细滑块
