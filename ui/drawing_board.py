@@ -32,7 +32,9 @@ from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsRectItem, QGraphicsItem,
     QGraphicsPixmapItem, QGraphicsTextItem, QSizePolicy, QSpacerItem,
     QColorDialog, QFileDialog, QMessageBox, QButtonGroup, QMenu, QApplication,
-    QLayout, QLayoutItem, QGridLayout, QStackedWidget, QToolButton
+    QLayout, QLayoutItem, QGridLayout, QStackedWidget, QToolButton,
+    QGraphicsPathItem, QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPolygonItem,
+    QGraphicsItemGroup,
 )
 
 from core.database import DatabaseManager, get_assets_dir, get_assets_root
@@ -321,7 +323,13 @@ CANVAS_HEIGHT = 600
 # 自定义画布视图：将鼠标事件转发给当前工具
 # ===========================================================================
 class _CanvasView(QGraphicsView):
-    """画布视图，转发鼠标事件到画板的当前工具。"""
+    """画布视图，转发鼠标事件到画板的当前工具。
+
+    严格限制所有绘制操作仅在画布范围 (0,0,CANVAS_WIDTH,CANVAS_HEIGHT) 内进行：
+      - mousePress 不在画布内 → 忽略事件
+      - mouseMove 时若已有活动绘制，超出范围的坐标裁剪到画布边界
+      - mouseRelease 强制结束当前绘制，并把坐标裁剪到画布边界
+    """
 
     def __init__(self, board: "DrawingBoardView"):
         super().__init__()
@@ -332,33 +340,57 @@ class _CanvasView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
+        self._paint_active = False
+
+    def _in_canvas(self, scene_pos) -> bool:
+        return (
+            0 <= scene_pos.x() <= CANVAS_WIDTH
+            and 0 <= scene_pos.y() <= CANVAS_HEIGHT
+        )
+
+    def _clip(self, scene_pos) -> QPointF:
+        x = max(0.0, min(float(CANVAS_WIDTH), scene_pos.x()))
+        y = max(0.0, min(float(CANVAS_HEIGHT), scene_pos.y()))
+        return QPointF(x, y)
 
     def mousePressEvent(self, event: QMouseEvent):
         tool = self._board.current_tool
         if tool is not None:
             scene_pos = self.mapToScene(event.position().toPoint())
+            if not self._in_canvas(scene_pos):
+                # 画布外按下：忽略（不启动绘制）
+                super().mousePressEvent(event)
+                return
+            self._paint_active = True
             tool.mouse_press(event, scene_pos)
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        # 状态栏坐标更新（无论是否有工具）
         vp = event.position().toPoint()
         scene_pos = self.mapToScene(vp)
         self._board._update_status_coord(scene_pos)
-        # 比例尺鼠标指示线联动
         self._board._update_ruler_mouse(vp.x(), vp.y())
         tool = self._board.current_tool
-        if tool is not None:
-            tool.mouse_move(event, scene_pos)
+        if tool is not None and self._paint_active:
+            # 若已有活动绘制：裁剪到画布边界内
+            clipped = self._clip(scene_pos)
+            tool.mouse_move(event, clipped)
+        elif tool is not None:
+            # 未开始绘制：仍让工具处理 hover（某些工具可能需要）
+            # 但不传递超出范围的点
+            if self._in_canvas(scene_pos):
+                tool.mouse_move(event, scene_pos)
         else:
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         tool = self._board.current_tool
-        if tool is not None:
+        if tool is not None and self._paint_active:
             scene_pos = self.mapToScene(event.position().toPoint())
-            tool.mouse_release(event, scene_pos)
+            clipped = self._clip(scene_pos)
+            self._paint_active = False
+            tool.mouse_release(event, clipped)
         else:
             super().mouseReleaseEvent(event)
 
@@ -504,7 +536,7 @@ class DrawingBoardView(QWidget):
         layout.setContentsMargins(8, 0, 8, 0)
         layout.setSpacing(4)
 
-        # 左侧：快捷操作按钮（动作类，加入动作互斥组）
+        # 左侧：快捷操作按钮（动作类，不可选中，瞬时执行）
         quick_actions = [
             ("undo", "撤销 (Ctrl+Z)"),
             ("redo", "重做 (Ctrl+Y)"),
@@ -519,8 +551,7 @@ class DrawingBoardView(QWidget):
             btn.setFixedSize(34, 34)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(tooltip)
-            btn.setCheckable(True)
-            self._action_btn_group.addButton(btn)
+            btn.setCheckable(False)  # 动作按钮：不可选中，瞬时执行
             btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
             self._tool_buttons[name] = btn
             layout.addWidget(btn)
@@ -598,10 +629,8 @@ class DrawingBoardView(QWidget):
                        tooltip: str = "") -> QToolButton:
         """创建一个 QToolButton 图标按钮，注册到 _tool_buttons dict。
 
-        所有按钮点击后持久高亮（checked 状态），直到同组其他按钮被点击。
-        checkable=True: 加入工具互斥组（画笔/橡皮等）
-        checkable=False: 加入动作互斥组（撤销/缩放/复制等）
-        两个分组独立互不干扰。
+        checkable=True: 工具按钮（画笔/橡皮等），可选中持久高亮，加入工具互斥组。
+        checkable=False: 动作按钮（复制/删除等），不可选中，点击后瞬时执行动作。
         """
         btn = QToolButton()
         btn.setObjectName(f"tool_{name}")
@@ -613,16 +642,14 @@ class DrawingBoardView(QWidget):
         if tooltip:
             btn.setToolTip(tooltip)
 
-        # 所有按钮都可勾选，获得持久高亮
-        btn.setCheckable(True)
-
         if checkable:
-            # 工具按钮：加入工具互斥组
+            # 工具按钮：可选中持久高亮，加入工具互斥组
+            btn.setCheckable(True)
             self._tool_btn_group.addButton(btn)
             self._tool_btn_group.setId(btn, len(self._tool_buttons))
         else:
-            # 动作按钮：加入动作互斥组 + 连接动作
-            self._action_btn_group.addButton(btn)
+            # 动作按钮：不可选中，点击即执行
+            btn.setCheckable(False)
             btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
 
         self._tool_buttons[name] = btn
@@ -939,6 +966,17 @@ class DrawingBoardView(QWidget):
 
     def _on_action_clicked(self, name: str):
         # 操作 / 视图 / 文件 动作
+        # 先清除所有工具按钮的选中状态（动作按钮应为瞬时操作，不保持高亮）
+        # 注意：工具按钮（画笔等）仍保持选中状态
+        for n, btn in self._tool_buttons.items():
+            if n not in ("undo", "redo", "clear", "copy", "paste", "cut",
+                         "select_all", "delete", "zoom_in", "zoom_out",
+                         "zoom_100", "zoom_fit", "save_file", "insert_note",
+                         "wheel_zoom_toggle", "custom_color", "fill_toggle"):
+                continue
+            if btn.isCheckable():
+                btn.setChecked(False)
+
         if name == "undo":
             self.undo_stack.undo()
         elif name == "redo":
@@ -1123,6 +1161,24 @@ class DrawingBoardView(QWidget):
                 pass
         return clone
 
+    def _constrain_item_to_canvas(self, item: QGraphicsItem):
+        """将图形项约束在画布范围内：若超出则平移到画布内（尽量保留原几何）。"""
+        if item is self._canvas_bg_item:
+            return
+        br = item.sceneBoundingRect()
+        dx = 0.0
+        dy = 0.0
+        if br.left() < 0:
+            dx = -br.left()
+        elif br.right() > CANVAS_WIDTH:
+            dx = CANVAS_WIDTH - br.right()
+        if br.top() < 0:
+            dy = -br.top()
+        elif br.bottom() > CANVAS_HEIGHT:
+            dy = CANVAS_HEIGHT - br.bottom()
+        if abs(dx) > 0.001 or abs(dy) > 0.001:
+            item.moveBy(dx, dy)
+
     def _paste(self):
         cb = getattr(self, "_clipboard", None)
         if not cb:
@@ -1136,6 +1192,7 @@ class DrawingBoardView(QWidget):
                     self.undo_stack.push(AddItemCommand(self.scene, it))
                 elif it.scene() is None:
                     self.scene.addItem(it)
+                self._constrain_item_to_canvas(it)
             # 剪切粘贴后清空剪贴板（避免重复粘贴）
             self._clipboard = None
             self._update_status(f"已粘贴 {len(cb)} 项（移动）")
@@ -1149,6 +1206,7 @@ class DrawingBoardView(QWidget):
                         self.undo_stack.push(AddItemCommand(self.scene, clone))
                     else:
                         self.scene.addItem(clone)
+                    self._constrain_item_to_canvas(clone)
             self._update_status(f"已粘贴 {len(cb)} 项副本")
 
     def _select_all(self):
@@ -1189,6 +1247,7 @@ class DrawingBoardView(QWidget):
             self.undo_stack.push(AddItemCommand(self.scene, item))
         else:
             self.scene.addItem(item)
+        self._constrain_item_to_canvas(item)
         self._update_status("已从系统剪贴板粘贴图片")
 
     def _toggle_wheel_zoom(self, checked: bool):

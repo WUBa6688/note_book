@@ -236,11 +236,13 @@ class BaseTool(QObject):
         return getattr(self.editor_ref, "_canvas_bg_item", None)
 
     def _make_selectable(self, item):
-        """为图形项启用可选择标志（选择工具依赖 setSelected 生效）。"""
+        """为图形项启用可选择、可移动、可聚焦标志（选择/移动/删除依赖这些）。"""
         if item is None:
             return
         try:
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         except Exception:
             pass
 
@@ -630,7 +632,8 @@ class _SelectToolBase(BaseTool):
 
     def mouse_press(self, event, scene_pos):
         bg = self._bg_item()
-        here = [it for it in self.scene.items(scene_pos) if it is not bg]
+        # 使用 BoundingRect 模式，即使细线条也能被检测到
+        here = [it for it in self.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemBoundingRect) if it is not bg]
         if here and here[0].isSelected():
             # 点中已选中项 -> 移动当前选中集合
             self._begin_move(scene_pos)
@@ -722,9 +725,15 @@ class RectSelectTool(_SelectToolBase):
             return
         rect = QRectF(self._start, scene_pos).normalized()
         bg = self._bg_item()
-        for it in self.scene.items(rect, Qt.ItemSelectionMode.IntersectsItemShape):
-            if it is not bg and it is not self._rect_item:
-                it.setSelected(True)
+        # 同时使用 Shape 和 BoundingRect 两种模式，确保细线条也能被选中
+        selected_items = set()
+        for mode in (Qt.ItemSelectionMode.IntersectsItemBoundingRect,
+                     Qt.ItemSelectionMode.IntersectsItemShape):
+            for it in self.scene.items(rect, mode):
+                if it is not bg and it is not self._rect_item:
+                    selected_items.add(it)
+        for it in selected_items:
+            it.setSelected(True)
         if self._rect_item.scene() is self.scene:
             self.scene.removeItem(self._rect_item)
         self._rect_item = None
@@ -765,9 +774,15 @@ class FreeSelectTool(_SelectToolBase):
         if self._path_item is not None:
             self._path_item.setPath(self._path)
         bg = self._bg_item()
-        for it in self.scene.items(self._path, Qt.ItemSelectionMode.IntersectsItemShape):
-            if it is not bg and it is not self._path_item:
-                it.setSelected(True)
+        # 同时使用 Shape 和 BoundingRect 两种模式
+        selected_items = set()
+        for mode in (Qt.ItemSelectionMode.IntersectsItemBoundingRect,
+                     Qt.ItemSelectionMode.IntersectsItemShape):
+            for it in self.scene.items(self._path, mode):
+                if it is not bg and it is not self._path_item:
+                    selected_items.add(it)
+        for it in selected_items:
+            it.setSelected(True)
         if self._path_item is not None and self._path_item.scene() is self.scene:
             self.scene.removeItem(self._path_item)
         self._path = None
