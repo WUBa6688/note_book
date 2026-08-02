@@ -440,6 +440,9 @@ class DrawingBoardView(QWidget):
         self._tool_btn_group = QButtonGroup(self)
         self._tool_btn_group.setExclusive(True)
         self._tool_btn_group.idClicked.connect(self._on_tool_clicked)
+        # ---- 动作按钮分组（互斥，与工具分组独立）----
+        self._action_btn_group = QButtonGroup(self)
+        self._action_btn_group.setExclusive(True)
         # 调色板色块分组（互斥，表示当前选中色）
         self._palette_group = QButtonGroup(self)
         self._palette_group.setExclusive(True)
@@ -501,7 +504,7 @@ class DrawingBoardView(QWidget):
         layout.setContentsMargins(8, 0, 8, 0)
         layout.setSpacing(4)
 
-        # 左侧：快捷操作按钮
+        # 左侧：快捷操作按钮（动作类，加入动作互斥组）
         quick_actions = [
             ("undo", "撤销 (Ctrl+Z)"),
             ("redo", "重做 (Ctrl+Y)"),
@@ -509,13 +512,17 @@ class DrawingBoardView(QWidget):
         ]
         for name, tooltip in quick_actions:
             btn = QToolButton()
-            btn.setObjectName("tool_quick_action")
+            btn.setObjectName(f"tool_{name}")
+            btn.setProperty("tool_name", name)
             btn.setIcon(QIcon(DrawingIcon.create(name)))
             btn.setIconSize(QSize(18, 18))
             btn.setFixedSize(34, 34)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(tooltip)
-            btn.clicked.connect(lambda n=name: self._on_action_clicked(n))
+            btn.setCheckable(True)
+            self._action_btn_group.addButton(btn)
+            btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
+            self._tool_buttons[name] = btn
             layout.addWidget(btn)
 
         # 分隔线
@@ -589,7 +596,13 @@ class DrawingBoardView(QWidget):
     # -------------------------------------------------------------------
     def _make_tool_btn(self, name: str, icon_name: str = "", checkable: bool = False,
                        tooltip: str = "") -> QToolButton:
-        """创建一个 QToolButton 图标按钮，注册到 _tool_buttons dict。"""
+        """创建一个 QToolButton 图标按钮，注册到 _tool_buttons dict。
+
+        所有按钮点击后持久高亮（checked 状态），直到同组其他按钮被点击。
+        checkable=True: 加入工具互斥组（画笔/橡皮等）
+        checkable=False: 加入动作互斥组（撤销/缩放/复制等）
+        两个分组独立互不干扰。
+        """
         btn = QToolButton()
         btn.setObjectName(f"tool_{name}")
         btn.setProperty("tool_name", name)
@@ -599,12 +612,19 @@ class DrawingBoardView(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         if tooltip:
             btn.setToolTip(tooltip)
+
+        # 所有按钮都可勾选，获得持久高亮
+        btn.setCheckable(True)
+
         if checkable:
-            btn.setCheckable(True)
+            # 工具按钮：加入工具互斥组
             self._tool_btn_group.addButton(btn)
             self._tool_btn_group.setId(btn, len(self._tool_buttons))
         else:
+            # 动作按钮：加入动作互斥组 + 连接动作
+            self._action_btn_group.addButton(btn)
             btn.clicked.connect(lambda _c=False, n=name: self._on_action_clicked(n))
+
         self._tool_buttons[name] = btn
         return btn
 
@@ -742,11 +762,14 @@ class DrawingBoardView(QWidget):
         # 自定义颜色按钮
         self.custom_color_btn = QToolButton()
         self.custom_color_btn.setObjectName("tool_custom_color")
+        self.custom_color_btn.setProperty("tool_name", "custom_color")
         self.custom_color_btn.setIcon(QIcon(DrawingIcon.create("custom_color")))
         self.custom_color_btn.setIconSize(QSize(20, 20))
         self.custom_color_btn.setFixedSize(44, 40)
         self.custom_color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.custom_color_btn.setToolTip("自定义颜色")
+        self.custom_color_btn.setCheckable(True)
+        self._action_btn_group.addButton(self.custom_color_btn)
         self.custom_color_btn.clicked.connect(self._on_custom_color)
         self._tool_buttons["custom_color"] = self.custom_color_btn  # type: ignore
         layout.addWidget(self.custom_color_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -779,12 +802,14 @@ class DrawingBoardView(QWidget):
         # 填充模式切换
         self.fill_btn = QToolButton()
         self.fill_btn.setObjectName("tool_fill_toggle")
+        self.fill_btn.setProperty("tool_name", "fill_toggle")
         self.fill_btn.setIcon(QIcon(DrawingIcon.create("fill_toggle")))
         self.fill_btn.setIconSize(QSize(20, 20))
         self.fill_btn.setFixedSize(44, 40)
         self.fill_btn.setCheckable(True)
         self.fill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.fill_btn.setToolTip("切换形状填充模式：空心 / 实心（仅形状工具有效）")
+        self._action_btn_group.addButton(self.fill_btn)
         self.fill_btn.clicked.connect(self._on_fill_toggled)
         self._tool_buttons["fill_toggle"] = self.fill_btn  # type: ignore
         layout.addWidget(self.fill_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -821,12 +846,14 @@ class DrawingBoardView(QWidget):
         # 滚轮缩放开关
         wz = QToolButton()
         wz.setObjectName("tool_wheel_zoom_toggle")
+        wz.setProperty("tool_name", "wheel_zoom_toggle")
         wz.setIcon(QIcon(DrawingIcon.create("wheel_zoom")))
         wz.setIconSize(QSize(20, 20))
         wz.setFixedSize(44, 40)
         wz.setCursor(Qt.CursorShape.PointingHandCursor)
         wz.setCheckable(True)
         wz.setToolTip("切换滚轮缩放模式 (开: 滚轮直接缩放; 关: 滚轮平移, Ctrl+滚轮缩放)")
+        self._action_btn_group.addButton(wz)
         wz.toggled.connect(self._toggle_wheel_zoom)
         self._tool_buttons["wheel_zoom_toggle"] = wz  # type: ignore
         layout.addWidget(wz)
@@ -1393,14 +1420,8 @@ class DrawingBoardView(QWidget):
         if self.text_toolbar is not None:
             self.text_toolbar.setStyleSheet(qss["text_toolbar"])
             self.text_toolbar.apply_theme(t)
-        # 工具按钮（QToolButton，区分选中/未选中）
-        icon_btn_qss = qss.get("tool_icon_btn", "")
-        icon_btn_checked_qss = qss.get("tool_icon_btn_checked", "")
-        for name, btn in self._tool_buttons.items():
-            if btn.isCheckable():
-                btn.setStyleSheet(icon_btn_checked_qss if btn.isChecked() else icon_btn_qss)
-            else:
-                btn.setStyleSheet(icon_btn_qss)
+        # 工具按钮样式已通过 left_toolbar / top_bar 的 QSS 级联处理
+        # （使用 :checked 伪状态，Qt 自动响应状态变化）
         # 调色板色块
         for name, btn in self._palette_buttons.items():
             hex_color = btn._color_hex  # type: ignore

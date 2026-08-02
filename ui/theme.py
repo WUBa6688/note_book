@@ -918,16 +918,27 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
             background: {t['card_bg']};
             border-bottom: 1px solid {t['border']};
         }}
-        QToolButton#tool_quick_action {{
+        QToolButton#tool_undo, QToolButton#tool_redo, QToolButton#tool_clear {{
             background: transparent;
-            border: none;
+            border: 1px solid transparent;
             border-radius: 6px;
+            padding: 4px;
         }}
-        QToolButton#tool_quick_action:hover {{
+        QToolButton#tool_undo:hover, QToolButton#tool_redo:hover, QToolButton#tool_clear:hover {{
             background: {t['list_hover_bg']};
+            border: 1px solid {t['border']};
         }}
-        QToolButton#tool_quick_action:pressed {{
-            background: {t['selection_bg']};
+        QToolButton#tool_undo:pressed, QToolButton#tool_redo:pressed, QToolButton#tool_clear:pressed {{
+            background: {t['primary']};
+            border: 1px solid {t['primary']};
+        }}
+        QToolButton#tool_undo:checked, QToolButton#tool_redo:checked, QToolButton#tool_clear:checked {{
+            background: {t['primary']};
+            border: 1px solid {t['primary']};
+        }}
+        QToolButton#tool_undo:checked:hover, QToolButton#tool_redo:checked:hover, QToolButton#tool_clear:checked:hover {{
+            background: {t['primary_hover_top']};
+            border: 1px solid {t['primary_hover_top']};
         }}
         QPushButton#drawing_tab {{
             background: transparent;
@@ -952,35 +963,87 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
             background: {t['card_bg']};
             border-right: 1px solid {t['border']};
         }}
-        """,
-        "tool_icon_btn": f"""
-        QToolButton {{
+        QToolButton#tool_pen, QToolButton#tool_airbrush, QToolButton#tool_brush,
+        QToolButton#tool_eraser, QToolButton#tool_color_picker, QToolButton#tool_fill,
+        QToolButton#tool_text, QToolButton#tool_rect_select, QToolButton#tool_free_select,
+        QToolButton#tool_line, QToolButton#tool_curve, QToolButton#tool_rectangle,
+        QToolButton#tool_round_rect, QToolButton#tool_ellipse, QToolButton#tool_triangle,
+        QToolButton#tool_star, QToolButton#tool_arrow, QToolButton#tool_dialog,
+        QToolButton#tool_save_file, QToolButton#tool_insert_note,
+        QToolButton#tool_zoom_in, QToolButton#tool_zoom_out, QToolButton#tool_zoom_100,
+        QToolButton#tool_zoom_fit, QToolButton#tool_copy, QToolButton#tool_cut,
+        QToolButton#tool_paste, QToolButton#tool_select_all, QToolButton#tool_delete,
+        QToolButton#tool_custom_color, QToolButton#tool_fill_toggle,
+        QToolButton#tool_wheel_zoom_toggle {{
             background: transparent;
-            border: none;
+            border: 2px solid transparent;
             border-radius: 8px;
-            padding: 6px;
+            padding: 4px;
             margin: 1px;
         }}
-        QToolButton:hover {{
+        QToolButton#tool_pen:hover, QToolButton#tool_airbrush:hover, QToolButton#tool_brush:hover,
+        QToolButton#tool_eraser:hover, QToolButton#tool_color_picker:hover, QToolButton#tool_fill:hover,
+        QToolButton#tool_text:hover, QToolButton#tool_rect_select:hover, QToolButton#tool_free_select:hover,
+        QToolButton#tool_line:hover, QToolButton#tool_curve:hover, QToolButton#tool_rectangle:hover,
+        QToolButton#tool_round_rect:hover, QToolButton#tool_ellipse:hover, QToolButton#tool_triangle:hover,
+        QToolButton#tool_star:hover, QToolButton#tool_arrow:hover, QToolButton#tool_dialog:hover,
+        QToolButton#tool_save_file:hover, QToolButton#tool_insert_note:hover,
+        QToolButton#tool_zoom_in:hover, QToolButton#tool_zoom_out:hover, QToolButton#tool_zoom_100:hover,
+        QToolButton#tool_zoom_fit:hover, QToolButton#tool_copy:hover, QToolButton#tool_cut:hover,
+        QToolButton#tool_paste:hover, QToolButton#tool_select_all:hover, QToolButton#tool_delete:hover,
+        QToolButton#tool_custom_color:hover, QToolButton#tool_fill_toggle:hover,
+        QToolButton#tool_wheel_zoom_toggle:hover {{
             background: {t['list_hover_bg']};
+            border: 2px solid {t['border']};
         }}
-        QToolButton:pressed {{
-            background: {t['selection_bg']};
-        }}
-        """,
-        "tool_icon_btn_checked": f"""
-        QToolButton {{
+        QToolButton#tool_pen:checked, QToolButton#tool_airbrush:checked, QToolButton#tool_brush:checked,
+        QToolButton#tool_eraser:checked, QToolButton#tool_color_picker:checked, QToolButton#tool_fill:checked,
+        QToolButton#tool_text:checked, QToolButton#tool_rect_select:checked, QToolButton#tool_free_select:checked,
+        QToolButton#tool_line:checked, QToolButton#tool_curve:checked, QToolButton#tool_rectangle:checked,
+        QToolButton#tool_round_rect:checked, QToolButton#tool_ellipse:checked, QToolButton#tool_triangle:checked,
+        QToolButton#tool_star:checked, QToolButton#tool_arrow:checked, QToolButton#tool_dialog:checked,
+        QToolButton#tool_save_file:checked, QToolButton#tool_insert_note:checked,
+        QToolButton#tool_zoom_in:checked, QToolButton#tool_zoom_out:checked, QToolButton#tool_zoom_100:checked,
+        QToolButton#tool_zoom_fit:checked, QToolButton#tool_copy:checked, QToolButton#tool_cut:checked,
+        QToolButton#tool_paste:checked, QToolButton#tool_select_all:checked, QToolButton#tool_delete:checked,
+        QToolButton#tool_custom_color:checked, QToolButton#tool_fill_toggle:checked,
+        QToolButton#tool_wheel_zoom_toggle:checked {{
             background: {t['primary']};
-            border: none;
-            border-radius: 8px;
-            padding: 6px;
-            margin: 1px;
+            border: 2px solid {t['primary']};
         }}
-        QToolButton:hover {{
+        QToolButton#tool_pen:checked:hover, QToolButton#tool_airbrush:checked:hover,
+        QToolButton#tool_brush:checked:hover, QToolButton#tool_eraser:checked:hover,
+        QToolButton#tool_color_picker:checked:hover, QToolButton#tool_fill:checked:hover,
+        QToolButton#tool_text:checked:hover, QToolButton#tool_rect_select:checked:hover,
+        QToolButton#tool_free_select:checked:hover, QToolButton#tool_line:checked:hover,
+        QToolButton#tool_curve:checked:hover, QToolButton#tool_rectangle:checked:hover,
+        QToolButton#tool_round_rect:checked:hover, QToolButton#tool_ellipse:checked:hover,
+        QToolButton#tool_triangle:checked:hover, QToolButton#tool_star:checked:hover,
+        QToolButton#tool_arrow:checked:hover, QToolButton#tool_dialog:checked:hover,
+        QToolButton#tool_save_file:checked:hover, QToolButton#tool_insert_note:checked:hover,
+        QToolButton#tool_zoom_in:checked:hover, QToolButton#tool_zoom_out:checked:hover,
+        QToolButton#tool_zoom_100:checked:hover, QToolButton#tool_zoom_fit:checked:hover,
+        QToolButton#tool_copy:checked:hover, QToolButton#tool_cut:checked:hover,
+        QToolButton#tool_paste:checked:hover, QToolButton#tool_select_all:checked:hover,
+        QToolButton#tool_delete:checked:hover, QToolButton#tool_custom_color:checked:hover,
+        QToolButton#tool_fill_toggle:checked:hover, QToolButton#tool_wheel_zoom_toggle:checked:hover {{
             background: {t['primary_hover_top']};
+            border: 2px solid {t['primary_hover_top']};
         }}
-        QToolButton:pressed {{
+        QToolButton#tool_pen:pressed, QToolButton#tool_airbrush:pressed, QToolButton#tool_brush:pressed,
+        QToolButton#tool_eraser:pressed, QToolButton#tool_color_picker:pressed, QToolButton#tool_fill:pressed,
+        QToolButton#tool_text:pressed, QToolButton#tool_rect_select:pressed, QToolButton#tool_free_select:pressed,
+        QToolButton#tool_line:pressed, QToolButton#tool_curve:pressed, QToolButton#tool_rectangle:pressed,
+        QToolButton#tool_round_rect:pressed, QToolButton#tool_ellipse:pressed, QToolButton#tool_triangle:pressed,
+        QToolButton#tool_star:pressed, QToolButton#tool_arrow:pressed, QToolButton#tool_dialog:pressed,
+        QToolButton#tool_save_file:pressed, QToolButton#tool_insert_note:pressed,
+        QToolButton#tool_zoom_in:pressed, QToolButton#tool_zoom_out:pressed, QToolButton#tool_zoom_100:pressed,
+        QToolButton#tool_zoom_fit:pressed, QToolButton#tool_copy:pressed, QToolButton#tool_cut:pressed,
+        QToolButton#tool_paste:pressed, QToolButton#tool_select_all:pressed, QToolButton#tool_delete:pressed,
+        QToolButton#tool_custom_color:pressed, QToolButton#tool_fill_toggle:pressed,
+        QToolButton#tool_wheel_zoom_toggle:pressed {{
             background: {t['primary_pressed_top']};
+            border: 2px solid {t['primary_pressed_top']};
         }}
         """,
         "tool_group_label": f"""
