@@ -357,10 +357,12 @@ class _CanvasView(QGraphicsView):
         tool = self._board.current_tool
         if tool is not None:
             scene_pos = self.mapToScene(event.position().toPoint())
+            # 文字/选择工具允许在画布外接收事件（旋转手柄可能在画布外）
+            tool_name = getattr(self._board, "current_tool_name", "")
             if not self._in_canvas(scene_pos):
-                # 画布外按下：忽略（不启动绘制）
-                super().mousePressEvent(event)
-                return
+                if tool_name not in ("text", "rect_select", "free_select"):
+                    super().mousePressEvent(event)
+                    return
             self._paint_active = True
             tool.mouse_press(event, scene_pos)
         else:
@@ -373,12 +375,14 @@ class _CanvasView(QGraphicsView):
         self._board._update_ruler_mouse(vp.x(), vp.y())
         tool = self._board.current_tool
         if tool is not None and self._paint_active:
-            # 若已有活动绘制：裁剪到画布边界内
-            clipped = self._clip(scene_pos)
-            tool.mouse_move(event, clipped)
+            tool_name = getattr(self._board, "current_tool_name", "")
+            if tool_name in ("text", "rect_select", "free_select"):
+                # 文字/选择工具不裁剪坐标（旋转手柄可能在画布外）
+                tool.mouse_move(event, scene_pos)
+            else:
+                clipped = self._clip(scene_pos)
+                tool.mouse_move(event, clipped)
         elif tool is not None:
-            # 未开始绘制：仍让工具处理 hover（某些工具可能需要）
-            # 但不传递超出范围的点
             if self._in_canvas(scene_pos):
                 tool.mouse_move(event, scene_pos)
         else:
@@ -388,11 +392,27 @@ class _CanvasView(QGraphicsView):
         tool = self._board.current_tool
         if tool is not None and self._paint_active:
             scene_pos = self.mapToScene(event.position().toPoint())
-            clipped = self._clip(scene_pos)
-            self._paint_active = False
-            tool.mouse_release(event, clipped)
+            tool_name = getattr(self._board, "current_tool_name", "")
+            if tool_name in ("text", "rect_select", "free_select"):
+                self._paint_active = False
+                tool.mouse_release(event, scene_pos)
+            else:
+                clipped = self._clip(scene_pos)
+                self._paint_active = False
+                tool.mouse_release(event, clipped)
         else:
             super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        """双击事件：委托给当前工具处理（用于文字二次编辑）。"""
+        tool = self._board.current_tool
+        if tool is not None:
+            scene_pos = self.mapToScene(event.position().toPoint())
+            if hasattr(tool, 'double_click'):
+                tool.double_click(event, scene_pos)
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event):
         """Ctrl+滚轮缩放（25% 步进，范围 25-800%）；开启滚轮缩放时直接缩放；否则平移。"""
@@ -1117,6 +1137,10 @@ class DrawingBoardView(QWidget):
             QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsPixmapItem,
             QGraphicsTextItem, QGraphicsItemGroup, QGraphicsItem,
         )
+        try:
+            from .drawing_tools import RotatableTextItem
+        except ImportError:
+            RotatableTextItem = None
         clone = None
         # 按类型重建图形项，复制关键属性
         if isinstance(item, QGraphicsPathItem):
@@ -1139,6 +1163,11 @@ class DrawingBoardView(QWidget):
             clone.setBrush(item.brush())
         elif isinstance(item, QGraphicsPixmapItem):
             clone = QGraphicsPixmapItem(item.pixmap())
+        elif RotatableTextItem is not None and isinstance(item, RotatableTextItem):
+            clone = RotatableTextItem(item.toPlainText())
+            clone.setFont(item.font())
+            clone.setDefaultTextColor(item.defaultTextColor())
+            clone.set_rotation_angle(item.rotation_angle())
         elif isinstance(item, QGraphicsTextItem):
             clone = QGraphicsTextItem(item.toPlainText())
             clone.setFont(item.font())
