@@ -445,7 +445,7 @@ class _CanvasView(QGraphicsView):
 
     def contextMenuEvent(self, event):
         """显示画布右键菜单。"""
-        self._board._show_context_menu(event.globalPosition().toPoint())
+        self._board._show_context_menu(event.globalPos())
         event.accept()
 
 
@@ -815,8 +815,7 @@ class DrawingBoardView(QWidget):
         self.custom_color_btn.setFixedSize(44, 40)
         self.custom_color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.custom_color_btn.setToolTip("自定义颜色")
-        self.custom_color_btn.setCheckable(True)
-        self._action_btn_group.addButton(self.custom_color_btn)
+        self.custom_color_btn.setCheckable(False)
         self.custom_color_btn.clicked.connect(self._on_custom_color)
         self._tool_buttons["custom_color"] = self.custom_color_btn  # type: ignore
         layout.addWidget(self.custom_color_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -856,7 +855,6 @@ class DrawingBoardView(QWidget):
         self.fill_btn.setCheckable(True)
         self.fill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.fill_btn.setToolTip("切换形状填充模式：空心 / 实心（仅形状工具有效）")
-        self._action_btn_group.addButton(self.fill_btn)
         self.fill_btn.clicked.connect(self._on_fill_toggled)
         self._tool_buttons["fill_toggle"] = self.fill_btn  # type: ignore
         layout.addWidget(self.fill_btn, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -900,7 +898,6 @@ class DrawingBoardView(QWidget):
         wz.setCursor(Qt.CursorShape.PointingHandCursor)
         wz.setCheckable(True)
         wz.setToolTip("切换滚轮缩放模式 (开: 滚轮直接缩放; 关: 滚轮平移, Ctrl+滚轮缩放)")
-        self._action_btn_group.addButton(wz)
         wz.toggled.connect(self._toggle_wheel_zoom)
         self._tool_buttons["wheel_zoom_toggle"] = wz  # type: ignore
         layout.addWidget(wz)
@@ -1168,6 +1165,7 @@ class DrawingBoardView(QWidget):
             clone.setFont(item.font())
             clone.setDefaultTextColor(item.defaultTextColor())
             clone.set_rotation_angle(item.rotation_angle())
+            clone.set_text_size(item.text_width(), item.text_height(), item.font_size())
         elif isinstance(item, QGraphicsTextItem):
             clone = QGraphicsTextItem(item.toPlainText())
             clone.setFont(item.font())
