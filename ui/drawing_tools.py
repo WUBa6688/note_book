@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 import random
 
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRectF, QPointF
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRectF, QRect, QPointF, QTimer
 from PyQt6.QtGui import (
     QColor, QPen, QBrush, QPixmap, QPainter, QPainterPath, QImage, QFont,
     QPolygonF, QPalette, QAbstractTextDocumentLayout,
@@ -521,15 +521,23 @@ class RotatableTextItem(QGraphicsTextItem):
     HANDLE_SIZE = 8.0
     ROTATE_OFFSET = 28.0  # 旋转按钮距边框顶部的距离
 
+    # 类变量：全局唯一的编辑项
+    _current_editing_item: 'RotatableTextItem | None' = None
+
     def __init__(self, text: str = "", parent=None):
         super().__init__(text, parent)
         self._rotation = 0.0
-        self._font_size = 12.0  # 基准字号
-        self._width = 180.0     # 文字框宽度
-        self._height = 40.0     # 文字框高度
+        self._font_size = 12.0
+        self._width = 180.0
+        self._height = 40.0
+
+        # 光标闪烁
+        self._cursor_visible = True
+        self._blink_timer = QTimer()
+        self._blink_timer.timeout.connect(self._blink_cursor)
 
         # 交互标志
-        self._mode = None       # "move" / "resize" / "rotate"
+        self._mode = None
         self._resize_handle = -1
         self._resize_start_pos = QPointF()
         self._resize_start_br = QRectF()
@@ -641,10 +649,10 @@ class RotatableTextItem(QGraphicsTextItem):
     def paint(self, painter: QPainter, option, widget=None):
         s = self.HANDLE_SIZE
         w, h = self._width, self._height
-        is_editing = bool(self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction)
-        show_frame = self.isSelected() or is_editing
+        is_editing = (self is RotatableTextItem._current_editing_item)
+        is_selected = self.isSelected() and not is_editing
 
-        # 1. 先绘制文字本体（在文字框内）
+        # 1. 绘制文字本体
         painter.save()
         text_rect = QRectF(s, s, w, h)
         painter.setClipRect(text_rect)
@@ -655,70 +663,74 @@ class RotatableTextItem(QGraphicsTextItem):
         painter.translate(s, s)
         painter.setPen(QPen(QColor("#111111")))
         doc.drawContents(painter)
+
+        # 编辑态：绘制闪烁光标
+        if is_editing and self._cursor_visible:
+            cursor = self.textCursor()
+            pos = cursor.position()
+            fm = painter.fontMetrics()
+            text_before = self.toPlainText()[:pos]
+            cx = fm.horizontalAdvance(text_before)
+            by = doc.findBlock(pos).position() if pos > 0 else 0
+            painter.setClipping(False)
+            painter.setPen(QPen(QColor("#111111"), 1))
+            painter.drawLine(
+                QPointF(cx, by),
+                QPointF(cx, by + self._font_size * 1.2))
         painter.restore()
 
-        # 2. 选中态：绘制边框 + 手柄 + 旋转按钮
-        if self.isSelected():
+        # 2. 绘制边框（编辑态 / 选中态）
+        if is_editing or is_selected:
             painter.save()
             frame = QRectF(s, s, w, h)
-            pen = QPen(QColor("#2563EB"), 1.5, Qt.PenStyle.DashLine)
-            painter.setPen(pen)
-            painter.setBrush(QBrush(QColor(255, 255, 255, 40)))
-            painter.drawRoundedRect(frame, 2, 2)
-
-            # 8 个缩放手柄（小方块）
-            for h_idx in range(8):
-                hp = self._handle_local_pos(h_idx)
-                painter.setPen(QPen(QColor("#2563EB"), 1.5))
-                painter.setBrush(QBrush(QColor("#FFFFFF")))
-                painter.drawRect(QRectF(
-                    hp.x() - s / 2, hp.y() - s / 2, s, s))
-
-            # 旋转连线
-            rp_local = self._rotate_handle_local_pos()
-            painter.setPen(QPen(QColor("#2563EB"), 1.5, Qt.PenStyle.SolidLine))
-            painter.drawLine(QPointF(s + w / 2, s), rp_local)
-
-            # 旋转按钮（圆形 + 箭头图标）
-            painter.setPen(QPen(QColor("#2563EB"), 2))
-            painter.setBrush(QBrush(QColor("#FFFFFF")))
-            painter.drawEllipse(rp_local, self.HANDLE_SIZE, self.HANDLE_SIZE)
-            # 绘制旋转图标：圆弧 + 箭头
-            painter.setPen(QPen(QColor("#2563EB"), 1.5))
-            arc_rect = QRectF(rp_local.x() - 4, rp_local.y() - 4, 8, 8)
-            painter.drawArc(arc_rect, 30 * 16, 300 * 16)
-            # 箭头
-            angle = math.radians(330)
-            ax = rp_local.x() + 4 * math.cos(angle)
-            ay = rp_local.y() + 4 * math.sin(angle)
-            painter.drawLine(QPointF(ax, ay),
-                             QPointF(ax + 3 * math.cos(angle + 0.4),
-                                     ay + 3 * math.sin(angle + 0.4)))
-            painter.drawLine(QPointF(ax, ay),
-                             QPointF(ax + 3 * math.cos(angle - 0.4),
-                                     ay + 3 * math.sin(angle - 0.4)))
-
-            # 旋转角度提示
-            if abs(self._rotation) > 0.5:
-                painter.setPen(QPen(QColor("#1D4ED8")))
-                font = painter.font()
-                font.setPointSize(8)
-                painter.setFont(font)
-                painter.drawText(
-                    QRectF(0, rp_local.y() - 14, self._width + 2 * s, 12),
-                    Qt.AlignmentFlag.AlignCenter,
-                    f"{self._rotation:.0f}°")
-            painter.restore()
-
-        # 3. 编辑态：仅绘制虚线边框（无边框手柄）
-        elif show_frame:
-            painter.save()
-            frame = QRectF(s, s, w, h)
-            pen = QPen(QColor("#2563EB"), 1.2, Qt.PenStyle.DashLine)
+            pen = QPen(QColor("#2563EB"), 1.2 if is_editing else 1.5, Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.setBrush(QBrush(QColor(255, 255, 255, 30)))
             painter.drawRoundedRect(frame, 2, 2)
+
+            # 选中态：手柄 + 旋转按钮
+            if is_selected:
+                for h_idx in range(8):
+                    hp = self._handle_local_pos(h_idx)
+                    painter.setPen(QPen(QColor("#2563EB"), 1.5))
+                    painter.setBrush(QBrush(QColor("#FFFFFF")))
+                    painter.drawRect(QRectF(
+                        hp.x() - s / 2, hp.y() - s / 2, s, s))
+
+                rp_local = self._rotate_handle_local_pos()
+                painter.setPen(QPen(QColor("#2563EB"), 1.5, Qt.PenStyle.SolidLine))
+                painter.drawLine(QPointF(s + w / 2, s), rp_local)
+
+                painter.setPen(QPen(QColor("#2563EB"), 2))
+                painter.setBrush(QBrush(QColor("#FFFFFF")))
+                painter.drawEllipse(rp_local, self.HANDLE_SIZE, self.HANDLE_SIZE)
+                painter.setPen(QPen(QColor("#2563EB"), 1.5))
+                arc_rect = QRectF(rp_local.x() - 4, rp_local.y() - 4, 8, 8)
+                painter.drawArc(arc_rect, 30 * 16, 300 * 16)
+                angle = math.radians(330)
+                ax = rp_local.x() + 4 * math.cos(angle)
+                ay = rp_local.y() + 4 * math.sin(angle)
+                painter.drawLine(QPointF(ax, ay),
+                                 QPointF(ax + 3 * math.cos(angle + 0.4),
+                                         ay + 3 * math.sin(angle + 0.4)))
+                painter.drawLine(QPointF(ax, ay),
+                                 QPointF(ax + 3 * math.cos(angle - 0.4),
+                                         ay + 3 * math.sin(angle - 0.4)))
             painter.restore()
+
+    # ---- 光标闪烁 ----
+    def _blink_cursor(self):
+        self._cursor_visible = not self._cursor_visible
+        self.update()
+
+    def start_cursor_blink(self):
+        self._cursor_visible = True
+        self._blink_timer.start(500)
+
+    def stop_cursor_blink(self):
+        self._blink_timer.stop()
+        self._cursor_visible = True
+        self.update()
 
     def shape(self):
         path = QPainterPath()
@@ -857,21 +869,40 @@ class TextTool(BaseTool):
 
     def _begin_edit(self, item, scene_pos, is_new):
         """开始编辑文字项"""
+        # 先清除其他正在编辑的 item
+        if RotatableTextItem._current_editing_item is not None:
+            old = RotatableTextItem._current_editing_item
+            old.stop_cursor_blink()
+            old.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+            old.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, False)
+            old.update()
+
         self._editing_item = item
         self._is_new_item = is_new
         self._old_text = item.toPlainText()
         self._old_font = QFont(item.font())
         self._old_color = QColor(item.defaultTextColor())
 
-        # 显示格式工具栏（如果前端已创建）
+        # 显示格式工具栏
         toolbar = getattr(self.editor_ref, "text_toolbar", None)
         if toolbar is not None and TextFormatToolbar is not None:
             toolbar.setTargetItem(item)
             toolbar.show()
 
-        # 设置文字项为可编辑模式
+        # 设置为当前编辑项（全局唯一）
+        RotatableTextItem._current_editing_item = item
         item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         item.setFocus()
+
+        # 光标定位到文本开头
+        doc = item.document()
+        doc.setTextWidth(item.text_width())
+        cursor = item.textCursor()
+        cursor.movePosition(cursor.MoveOperation.Start)
+        item.setTextCursor(cursor)
+        item.start_cursor_blink()
+        item.update()
 
     def mouse_move(self, event, scene_pos):
         if self._mode == "move" and self._last_pos is not None:
@@ -891,6 +922,7 @@ class TextTool(BaseTool):
             while new_rotation < -180:
                 new_rotation += 360
             self._rotate_item.set_rotation_angle(new_rotation)
+            self.scene.invalidate()
         elif self._mode == "resize" and self._resize_item is not None:
             self._do_resize(scene_pos)
 
@@ -985,6 +1017,10 @@ class TextTool(BaseTool):
         item = self._editing_item
         new_text = item.toPlainText().strip()
 
+        # 停止光标闪烁 + 清除全局编辑状态
+        item.stop_cursor_blink()
+        RotatableTextItem._current_editing_item = None
+
         # 隐藏格式工具栏
         toolbar = getattr(self.editor_ref, "text_toolbar", None)
         if toolbar is not None:
@@ -996,19 +1032,17 @@ class TextTool(BaseTool):
             if item.scene() is self.scene:
                 self.scene.removeItem(item)
         else:
-            # 退出编辑模式，恢复为可选择+可拖动+可旋转
+            # 退出编辑模式，恢复为可选择+可拖动
             item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, False)
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-            # 保持选中状态以显示旋转手柄
             item.setSelected(True)
+            item.update()
 
             if self._is_new_item:
-                # 新文字：push AddItemCommand（幂等 redo，项已在场景中不会重复添加）
                 self.editor_ref.undo_stack.push(AddItemCommand(self.scene, item))
             else:
-                # 修改已有文字：push ModifyTextCommand
                 if ModifyTextCommand is not None:
                     new_font = QFont(item.font())
                     new_color = QColor(item.defaultTextColor())
@@ -1053,6 +1087,12 @@ class _SelectToolBase(BaseTool):
 
     def mouse_press(self, event, scene_pos):
         bg = self._bg_item()
+
+        # 如果有文字正在编辑，先停止其闪烁（TextTool 未激活时的兜底）
+        editing = RotatableTextItem._current_editing_item
+        if editing is not None:
+            editing.stop_cursor_blink()
+            RotatableTextItem._current_editing_item = None
 
         # 优先检查 RotatableTextItem 的手柄
         for it in self.scene.items(scene_pos, Qt.ItemSelectionMode.IntersectsItemBoundingRect):
@@ -1125,6 +1165,7 @@ class _SelectToolBase(BaseTool):
             while new_rotation < -180:
                 new_rotation += 360
             self._rotate_item.set_rotation_angle(new_rotation)
+            self.scene.invalidate()
         elif self._mode == "resize" and self._resize_item is not None:
             self._do_resize(scene_pos)
         elif self._mode == "select":
