@@ -22,7 +22,7 @@ import os
 from datetime import datetime
 from typing import List, Optional, Tuple, Dict, Any
 
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QRectF, QPointF, QPoint
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QRect, QRectF, QPointF, QPoint, QLineF
 from PyQt6.QtGui import (
     QColor, QPen, QBrush, QPixmap, QPainter, QFont, QMouseEvent, QImage,
     QCursor, QKeySequence, QUndoCommand, QUndoStack, QIcon
@@ -238,15 +238,20 @@ except Exception:
 # ===========================================================================
 # 可绘制工具（选中互斥）
 _DRAW_TOOLS: List[Tuple[str, str]] = [
-    ("pen", "画笔"), ("airbrush", "喷枪"), ("brush", "刷子"), ("eraser", "橡皮"),
-    ("color_picker", "取色"), ("fill", "填充"), ("text", "文字"),
+    ("pen", "画笔"), ("brush_pen", "毛笔"), ("writing_pen", "书写笔"),
+    ("airbrush", "喷枪"), ("oil_brush", "油画笔"), ("crayon", "蜡笔"),
+    ("marker", "记号笔"), ("pencil", "铅笔"), ("watercolor", "水彩笔"),
+    ("brush", "刷子"), ("eraser", "橡皮"), ("color_picker", "取色"),
+    ("fill", "填充"), ("text", "文字"),
     ("rect_select", "矩形选择"), ("free_select", "自由选择"),
 ]
 # 形状工具（选中互斥，与绘图工具共用一组互斥）
 _SHAPE_TOOLS: List[Tuple[str, str]] = [
     ("line", "直线"), ("curve", "曲线"), ("rectangle", "矩形"), ("round_rect", "圆角矩形"),
     ("ellipse", "椭圆"), ("triangle", "三角形"), ("star", "星形"), ("arrow", "箭头"),
-    ("dialog", "对话框"),
+    ("dialog", "对话框"), ("square", "正方形"), ("circle", "正圆"),
+    ("diamond", "菱形"), ("pentagon", "五边形"), ("hexagon", "六边形"),
+    ("heart", "爱心"), ("right_triangle", "直角三角"), ("parallelogram", "平行四边"),
 ]
 # 操作（动作按钮，非互斥）
 _OPERATION_TOOLS: List[Tuple[str, str]] = [
@@ -261,6 +266,24 @@ _VIEW_TOOLS: List[Tuple[str, str]] = [
 _FILE_TOOLS: List[Tuple[str, str]] = [
     ("save_file", "保存为文件"), ("insert_note", "插入到笔记"),
 ]
+
+# 工具粗细范围：(min, max, default)，单位 px
+def _tool_thickness_range(name: str) -> Tuple[int, int, int]:
+    if name == "pencil":
+        return (1, 10, 1)
+    if name == "eraser":
+        return (4, 80, 10)
+    if name == "airbrush":
+        return (5, 100, 20)
+    if name in ("crayon", "writing_pen"):
+        return (2, 40, 4)
+    if name in ("line", "curve", "rectangle", "round_rect", "ellipse",
+                "triangle", "star", "arrow", "dialog",
+                "square", "circle", "diamond", "pentagon",
+                "hexagon", "heart", "right_triangle", "parallelogram"):
+        return (1, 30, 2)
+    # pen / brush / marker / oil_brush / brush_pen / watercolor 等通用画笔
+    return (1, 60, 3)
 
 # ---- 按钮 tooltip（中文名 (快捷键) - 功能简述）----
 _DRAW_TOOLTIPS: Dict[str, str] = {
@@ -447,6 +470,30 @@ class _CanvasView(QGraphicsView):
         """显示画布右键菜单。"""
         self._board._show_context_menu(event.globalPos())
         event.accept()
+
+    def drawForeground(self, painter: QPainter, rect):
+        """显示网格（仅在 show_grid=True 时绘制）。"""
+        if not self._board.show_grid:
+            return
+        GRID_SIZE = 20
+        painter.save()
+        pen = QPen(QColor("#E5E7EB"), 1)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+
+        left = int(rect.left()) - (int(rect.left()) % GRID_SIZE)
+        top = int(rect.top()) - (int(rect.top()) % GRID_SIZE)
+
+        x_vals = list(range(left, int(rect.right()) + GRID_SIZE, GRID_SIZE))
+        y_vals = list(range(top, int(rect.bottom()) + GRID_SIZE, GRID_SIZE))
+
+        lines = []
+        for x in x_vals:
+            lines.append(QLineF(float(x), rect.top(), float(x), rect.bottom()))
+        for y in y_vals:
+            lines.append(QLineF(rect.left(), float(y), rect.right(), float(y)))
+        painter.drawLines(lines)
+        painter.restore()
 
 
 # ===========================================================================
@@ -1048,6 +1095,15 @@ class DrawingBoardView(QWidget):
             self.view.setCursor(cursor)
         elif self.current_tool is None:
             self.view.setCursor(Qt.CursorShape.ArrowCursor)
+        # 按工具动态调整粗细滑块范围 + 默认值
+        smin, smax, sdefault = _tool_thickness_range(name)
+        self.thickness_slider.blockSignals(True)
+        self.thickness_slider.setRange(smin, smax)
+        clamped = min(max(self.pen_width, smin), smax)
+        self.thickness_slider.setValue(clamped)
+        self.pen_width = clamped
+        self.thickness_value_label.setText(f"{clamped}px（{smin}-{smax}）")
+        self.thickness_slider.blockSignals(False)
         self._update_status_tool()
 
     def _set_active_color(self, which: str):
@@ -1322,8 +1378,9 @@ class DrawingBoardView(QWidget):
             self._update_status(f"画布背景色已设置为 {color.name()}")
 
     def _toggle_grid(self, checked: bool):
-        """切换网格显示（记录状态）。"""
+        """切换网格显示（记录状态并触发重绘）。"""
         self.show_grid = checked
+        self.view.viewport().update()
         self._update_status(f"显示网格: {'开' if checked else '关'}")
 
     def _on_scene_selection_changed(self):

@@ -104,10 +104,80 @@ def _star_polygon(rect: QRectF) -> QPolygonF:
     inner = outer * 0.382
     verts = []
     for i in range(10):
-        angle = -math.pi / 2 + i * math.pi / 5  # 从顶部开始
+        angle = -math.pi / 2 + i * math.pi / 5
         r = outer if i % 2 == 0 else inner
         verts.append(QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle)))
     return QPolygonF(verts)
+
+
+def _diamond_polygon(rect: QRectF) -> QPolygonF:
+    """菱形（4 顶点）。"""
+    return QPolygonF([
+        QPointF(rect.center().x(), rect.top()),
+        QPointF(rect.right(), rect.center().y()),
+        QPointF(rect.center().x(), rect.bottom()),
+        QPointF(rect.left(), rect.center().y()),
+    ])
+
+
+def _regular_polygon(rect: QRectF, sides: int) -> QPolygonF:
+    """正 n 边形（5=五边形，6=六边形，...），顶点从顶部开始顺时针排列。"""
+    cx = rect.center().x()
+    cy = rect.center().y()
+    r = min(rect.width(), rect.height()) / 2.0
+    if r < 1:
+        r = 1.0
+    verts = []
+    for i in range(sides):
+        angle = -math.pi / 2 + i * 2 * math.pi / sides
+        verts.append(QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle)))
+    return QPolygonF(verts)
+
+
+def _heart_path(rect: QRectF) -> QPainterPath:
+    """爱心参数方程（由 2 个半圆 + V 尖底组成）。"""
+    w = max(1.0, rect.width())
+    h = max(1.0, rect.height())
+    x0 = rect.left()
+    y0 = rect.top()
+    path = QPainterPath()
+    # 爱心顶点从底部尖出发，顺时针：左半圆 + 右半圆 + 底部连接
+    # 使用三次贝塞尔近似，控制点用经典爱心参数
+    left_cx = x0 + w * 0.25
+    right_cx = x0 + w * 0.75
+    cy_top = y0 + h * 0.25
+    cy_mid = y0 + h * 0.55
+    tip = QPointF(x0 + w * 0.5, y0 + h)
+    top_left = QPointF(x0, cy_top)
+    top_right = QPointF(x0 + w, cy_top)
+    mid_top = QPointF(x0 + w * 0.5, cy_mid)
+    path.moveTo(tip)
+    # 左下曲线
+    path.cubicTo(QPointF(x0, cy_mid), top_left, mid_top)
+    # 右下曲线
+    path.cubicTo(top_right, QPointF(x0 + w, cy_mid), tip)
+    path.closeSubpath()
+    return path
+
+
+def _right_triangle_polygon(rect: QRectF) -> QPolygonF:
+    """直角三角形（直角在左下角）。"""
+    return QPolygonF([
+        QPointF(rect.left(), rect.bottom()),
+        QPointF(rect.right(), rect.bottom()),
+        QPointF(rect.left(), rect.top()),
+    ])
+
+
+def _parallelogram_polygon(rect: QRectF) -> QPolygonF:
+    """平行四边形（左移顶部 20% 宽度）。"""
+    skew = rect.width() * 0.2
+    return QPolygonF([
+        QPointF(rect.left() + skew, rect.top()),
+        QPointF(rect.right(), rect.top()),
+        QPointF(rect.right() - skew, rect.bottom()),
+        QPointF(rect.left(), rect.bottom()),
+    ])
 
 
 def _arrow_path(start: QPointF, end: QPointF, head: float = 15) -> QPainterPath:
@@ -336,6 +406,117 @@ class EraserTool(PenTool):
         pen = QPen(QColor("#FFFFFF"), width)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        return pen
+
+
+class BrushPenTool(PenTool):
+    """毛笔：速度慢则粗、快则细的模拟软毛笔。"""
+
+    def __init__(self, scene, view, editor_ref):
+        super().__init__(scene, view, editor_ref)
+        self._last_mouse_time = 0.0
+        self._last_distance = 0.0
+
+    def _stroke_pen(self, event) -> QPen:
+        color = self._button_color(event)
+        if not isinstance(color, QColor):
+            color = QColor(color)
+        base_width = max(1, self.editor_ref.pen_width)
+        width = base_width + 2
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        return pen
+
+
+class WritingPenTool(PenTool):
+    """书写笔：扁平笔尖（方形 cap + miter join）。"""
+
+    def _stroke_pen(self, event) -> QPen:
+        color = self._button_color(event)
+        if not isinstance(color, QColor):
+            color = QColor(color)
+        width = max(1, self.editor_ref.pen_width)
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        return pen
+
+
+class OilBrushTool(PenTool):
+    """油画笔：半透明（alpha 150），厚重重叠效果。"""
+
+    def _stroke_pen(self, event) -> QPen:
+        color = self._button_color(event)
+        if not isinstance(color, QColor):
+            color = QColor(color)
+        color = QColor(color.red(), color.green(), color.blue(), 150)
+        width = max(1, int(self.editor_ref.pen_width * 1.8))
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        return pen
+
+
+class CrayonTool(PenTool):
+    """蜡笔：粗糙纹理（用 dash pattern + 半透明模拟）。"""
+
+    def _stroke_pen(self, event) -> QPen:
+        color = self._button_color(event)
+        if not isinstance(color, QColor):
+            color = QColor(color)
+        color = QColor(color.red(), color.green(), color.blue(), 200)
+        width = max(1, int(self.editor_ref.pen_width * 1.5))
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        pen.setDashPattern([2, 1])
+        return pen
+
+
+class MarkerTool(PenTool):
+    """记号笔：方头 + 半透明 180。"""
+
+    def _stroke_pen(self, event) -> QPen:
+        color = self._button_color(event)
+        if not isinstance(color, QColor):
+            color = QColor(color)
+        color = QColor(color.red(), color.green(), color.blue(), 180)
+        width = max(1, int(self.editor_ref.pen_width * 2))
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        return pen
+
+
+class PencilTool(PenTool):
+    """普通铅笔：细 + 半透明 150，轻微抖动不透明度。"""
+
+    def _stroke_pen(self, event) -> QPen:
+        color = self._button_color(event)
+        if not isinstance(color, QColor):
+            color = QColor(color)
+        color = QColor(color.red(), color.green(), color.blue(), 150)
+        width = max(1, self.editor_ref.pen_width)
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        return pen
+
+
+class WatercolorTool(PenTool):
+    """水彩画笔：大湿边 + 低不透明度 alpha=60。"""
+
+    def _stroke_pen(self, event) -> QPen:
+        color = self._button_color(event)
+        if not isinstance(color, QColor):
+            color = QColor(color)
+        color = QColor(color.red(), color.green(), color.blue(), 60)
+        width = max(1, int(self.editor_ref.pen_width * 3))
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         return pen
 
 
@@ -671,12 +852,13 @@ class RotatableTextItem(QGraphicsTextItem):
             fm = painter.fontMetrics()
             text_before = self.toPlainText()[:pos]
             cx = fm.horizontalAdvance(text_before)
-            by = doc.findBlock(pos).position() if pos > 0 else 0
+            cursor_y_top = 0
+            cursor_y_bot = fm.height()
             painter.setClipping(False)
             painter.setPen(QPen(QColor("#111111"), 1))
             painter.drawLine(
-                QPointF(cx, by),
-                QPointF(cx, by + self._font_size * 1.2))
+                QPointF(cx, cursor_y_top),
+                QPointF(cx, cursor_y_bot))
         painter.restore()
 
         # 2. 绘制边框（编辑态 / 选中态）
@@ -891,6 +1073,7 @@ class TextTool(BaseTool):
 
         # 设置为当前编辑项（全局唯一）
         RotatableTextItem._current_editing_item = item
+        item.setSelected(False)  # 编辑态立即清除选中态（避免编辑框+手柄同时显示）
         item.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         item.setFocus()
@@ -927,19 +1110,16 @@ class TextTool(BaseTool):
             self._do_resize(scene_pos)
 
     def _do_resize(self, scene_pos):
-        """根据当前手柄和鼠标位置调整文字框大小。"""
+        """根据当前手柄和鼠标位置调整文字框大小（文字与输入框等比缩放）。"""
         item = self._resize_item
         handle = self._resize_handle
-        # 将场景坐标转为 item 本地坐标
         local_pos = item.sceneTransform().inverted()[0].map(scene_pos)
         s = item.HANDLE_SIZE
-        # 内容区左上角在本地坐标 (s, s)
         frame_left = s
         frame_top = s
         frame_right = s + self._resize_start_w
         frame_bottom = s + self._resize_start_h
 
-        # 根据手柄调整边界
         if handle in (item.HANDLE_TL, item.HANDLE_L, item.HANDLE_BL):
             frame_left = local_pos.x()
         if handle in (item.HANDLE_TL, item.HANDLE_T, item.HANDLE_TR):
@@ -952,17 +1132,18 @@ class TextTool(BaseTool):
         new_w = max(30.0, frame_right - frame_left)
         new_h = max(20.0, frame_bottom - frame_top)
 
-        # 字体大小按比例缩放
-        scale = new_h / self._resize_start_h
+        # 计算各方向的缩放比例
+        sx = new_w / self._resize_start_w
+        sy = new_h / self._resize_start_h
+        # 文字与输入框等比缩放：字号按几何平均，保证变形最小
+        scale = math.sqrt(max(0.0001, sx * sy))
         new_font = max(6.0, self._resize_start_font * scale)
 
-        # 调整位置（左上手柄需要移动 item）
+        # 调整位置（左上/上/右上/左/左下手柄需要移动 item）
         if handle in (item.HANDLE_TL, item.HANDLE_T, item.HANDLE_TR,
                       item.HANDLE_L, item.HANDLE_BL):
-            # 计算移动后的场景位置
             dx_local = frame_left - s
             dy_local = frame_top - s
-            # 转换偏移到场景坐标（仅考虑旋转）
             transform = item.sceneTransform()
             dx_scene = transform.map(QPointF(dx_local, 0)).x() - transform.map(QPointF(0, 0)).x()
             dy_scene = transform.map(QPointF(0, dy_local)).y() - transform.map(QPointF(0, 0)).y()
@@ -1517,6 +1698,98 @@ class CalloutTool(_ShapeToolBase):
         item.setPath(_callout_path(start, end))
 
 
+class SquareTool(_ShapeToolBase):
+    """正方形：强制宽高取 min。"""
+    _fillable = True
+
+    def _create_item(self, event):
+        return QGraphicsRectItem()
+
+    def _apply_geometry(self, item, start, end, event):
+        r = _normalized_rect(start, end)
+        side = min(r.width(), r.height())
+        item.setRect(QRectF(r.left(), r.top(), side, side))
+
+
+class CircleTool(_ShapeToolBase):
+    """正圆：强制半径取 min(宽,高)/2。"""
+    _fillable = True
+
+    def _create_item(self, event):
+        return QGraphicsEllipseItem()
+
+    def _apply_geometry(self, item, start, end, event):
+        r = _normalized_rect(start, end)
+        side = min(r.width(), r.height())
+        item.setRect(QRectF(r.left(), r.top(), side, side))
+
+
+class DiamondTool(_ShapeToolBase):
+    """菱形：4 顶点。"""
+    _fillable = True
+
+    def _create_item(self, event):
+        return QGraphicsPolygonItem()
+
+    def _apply_geometry(self, item, start, end, event):
+        item.setPolygon(_diamond_polygon(_normalized_rect(start, end)))
+
+
+class PentagonTool(_ShapeToolBase):
+    """五边形：正 5 边形。"""
+    _fillable = True
+
+    def _create_item(self, event):
+        return QGraphicsPolygonItem()
+
+    def _apply_geometry(self, item, start, end, event):
+        item.setPolygon(_regular_polygon(_normalized_rect(start, end), 5))
+
+
+class HexagonTool(_ShapeToolBase):
+    """六边形：正 6 边形。"""
+    _fillable = True
+
+    def _create_item(self, event):
+        return QGraphicsPolygonItem()
+
+    def _apply_geometry(self, item, start, end, event):
+        item.setPolygon(_regular_polygon(_normalized_rect(start, end), 6))
+
+
+class HeartTool(_ShapeToolBase):
+    """爱心：贝塞尔曲线。"""
+    _fillable = True
+
+    def _create_item(self, event):
+        return QGraphicsPathItem()
+
+    def _apply_geometry(self, item, start, end, event):
+        item.setPath(_heart_path(_normalized_rect(start, end)))
+
+
+class RightTriangleTool(_ShapeToolBase):
+    """直角三角形。"""
+    _fillable = True
+
+    def _create_item(self, event):
+        return QGraphicsPolygonItem()
+
+    def _apply_geometry(self, item, start, end, event):
+        item.setPolygon(_right_triangle_polygon(_normalized_rect(start, end)))
+
+
+class ParallelogramTool(_ShapeToolBase):
+    """平行四边形。"""
+    _fillable = True
+
+    def _create_item(self, event):
+        return QGraphicsPolygonItem()
+
+    def _apply_geometry(self, item, start, end, event):
+        item.setPolygon(_parallelogram_polygon(_normalized_rect(start, end)))
+
+
 # ===========================================================================
 # 工具注册表与工厂
 # ===========================================================================
@@ -1529,6 +1802,13 @@ _TOOL_ALIASES = {
 
 TOOL_REGISTRY = {
     "pen": PenTool,
+    "brush_pen": BrushPenTool,
+    "writing_pen": WritingPenTool,
+    "oil_brush": OilBrushTool,
+    "crayon": CrayonTool,
+    "marker": MarkerTool,
+    "pencil": PencilTool,
+    "watercolor": WatercolorTool,
     "airbrush": AirbrushTool,
     "brush": BrushTool,
     "eraser": EraserTool,
@@ -1546,6 +1826,14 @@ TOOL_REGISTRY = {
     "star": StarTool,
     "arrow": ArrowTool,
     "callout": CalloutTool,
+    "square": SquareTool,
+    "circle": CircleTool,
+    "diamond": DiamondTool,
+    "pentagon": PentagonTool,
+    "hexagon": HexagonTool,
+    "heart": HeartTool,
+    "right_triangle": RightTriangleTool,
+    "parallelogram": ParallelogramTool,
 }
 
 
