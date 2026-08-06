@@ -641,6 +641,8 @@ class RotatableTextItem(QGraphicsTextItem):
     def paint(self, painter: QPainter, option, widget=None):
         s = self.HANDLE_SIZE
         w, h = self._width, self._height
+        is_editing = bool(self.textInteractionFlags() & Qt.TextInteractionFlag.TextEditorInteraction)
+        show_frame = self.isSelected() or is_editing
 
         # 1. 先绘制文字本体（在文字框内）
         painter.save()
@@ -655,7 +657,7 @@ class RotatableTextItem(QGraphicsTextItem):
         doc.drawContents(painter)
         painter.restore()
 
-        # 2. 选中时绘制边框 + 手柄
+        # 2. 选中态：绘制边框 + 手柄 + 旋转按钮
         if self.isSelected():
             painter.save()
             frame = QRectF(s, s, w, h)
@@ -708,6 +710,16 @@ class RotatableTextItem(QGraphicsTextItem):
                     f"{self._rotation:.0f}°")
             painter.restore()
 
+        # 3. 编辑态：仅绘制虚线边框（无边框手柄）
+        elif show_frame:
+            painter.save()
+            frame = QRectF(s, s, w, h)
+            pen = QPen(QColor("#2563EB"), 1.2, Qt.PenStyle.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(QBrush(QColor(255, 255, 255, 30)))
+            painter.drawRoundedRect(frame, 2, 2)
+            painter.restore()
+
     def shape(self):
         path = QPainterPath()
         br = self.boundingRect()
@@ -716,6 +728,31 @@ class RotatableTextItem(QGraphicsTextItem):
         rp = self._rotate_handle_local_pos()
         path.addEllipse(rp, self.HANDLE_SIZE + 4, self.HANDLE_SIZE + 4)
         return path
+
+    # ---- 悬停光标 ----
+    def hoverEvent(self, event):
+        if not self.isSelected():
+            self.unsetCursor()
+            return
+        handle = self._hit_handle(event.scenePos())
+        if handle >= 0:
+            cursor = self._cursor_for_handle(handle)
+            self.setCursor(cursor)
+        else:
+            self.unsetCursor()
+
+    def _cursor_for_handle(self, handle: int) -> Qt.CursorShape:
+        if handle == self.HANDLE_ROTATE:
+            return Qt.CursorShape.PointingHandCursor
+        if handle in (self.HANDLE_L, self.HANDLE_R):
+            return Qt.CursorShape.SizeHorCursor
+        if handle in (self.HANDLE_T, self.HANDLE_B):
+            return Qt.CursorShape.SizeVerCursor
+        if handle in (self.HANDLE_TL, self.HANDLE_BR):
+            return Qt.CursorShape.SizeAllCursor
+        if handle in (self.HANDLE_TR, self.HANDLE_BL):
+            return Qt.CursorShape.SizeAllCursor
+        return Qt.CursorShape.ArrowCursor
 
 
 class TextTool(BaseTool):
