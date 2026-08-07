@@ -70,6 +70,11 @@ class DrawingIcon:
         func = dispatch.get(name)
         if func is not None:
             func(p, color)
+        else:
+            # 未注册的工具名 → 默认画一个小圆点图标（避免显示空白）
+            p.setBrush(QBrush(QColor(color)))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QPointF(10, 10), 4, 4)
         p.end()
         return pm
 

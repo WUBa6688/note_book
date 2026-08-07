@@ -288,7 +288,14 @@ def _tool_thickness_range(name: str) -> Tuple[int, int, int]:
 # ---- 按钮 tooltip（中文名 (快捷键) - 功能简述）----
 _DRAW_TOOLTIPS: Dict[str, str] = {
     "pen":          "画笔 (P) - 自由手绘线条",
+    "brush_pen":    "毛笔 - 粗细随压感变化",
+    "writing_pen":  "书写笔 - 硬笔书写效果",
     "airbrush":     "喷枪 (A) - 喷雾效果绘制",
+    "oil_brush":    "油画笔 - 厚重涂抹效果",
+    "crayon":       "蜡笔 - 粗糙颗粒笔触",
+    "marker":       "记号笔 - 粗平笔触",
+    "pencil":       "铅笔 - 细淡线条",
+    "watercolor":   "水彩笔 - 透明晕染效果",
     "brush":        "刷子 (B) - 较粗的笔触",
     "eraser":       "橡皮 (E) - 擦除内容（白色覆盖）",
     "color_picker": "取色 (D) - 从画布拾取颜色",
@@ -305,6 +312,14 @@ _SHAPE_TOOLTIPS: Dict[str, str] = {
     "star":        "星形 (S) - 绘制五角星",
     "arrow":       "箭头 (W) - 绘制箭头",
     "dialog":      "对话框 (D) - 绘制对话框",
+    "square":      "正方形 - 四边等长矩形",
+    "circle":      "正圆 - 半径相等的圆",
+    "diamond":     "菱形 - 四边等长四边形",
+    "pentagon":    "五边形 - 五条边",
+    "hexagon":     "六边形 - 六条边",
+    "heart":       "爱心 - 心形图案",
+    "right_triangle": "直角三角 - 含直角的三角形",
+    "parallelogram": "平行四边形 - 对边平行",
 }
 _SELECT_TOOLTIPS: Dict[str, str] = {
     "rect_select": "矩形选择 - 框选图形",
@@ -517,6 +532,7 @@ class DrawingBoardView(QWidget):
         self.secondary_color: str = "#FFFFFF"
         self.active_color: str = "primary"  # "primary" / "secondary"
         self.pen_width: int = 2
+        self._tool_thickness: Dict[str, int] = {}  # 每种工具独立记住自己的粗细
         self.filled: bool = False
         self.zoom_level: int = 100
         # ---- V4 新增状态 ----
@@ -657,10 +673,10 @@ class DrawingBoardView(QWidget):
     # 左侧垂直工具栏
     # -------------------------------------------------------------------
     def _build_left_toolbar(self, middle_layout: QHBoxLayout):
-        """左侧垂直工具栏：QStackedWidget 随 Tab 切换显示不同工具面板。"""
+        """左侧垂直工具栏：QStackedWidget + 底部通用粗细滑块。"""
         self.left_toolbar = QFrame()
         self.left_toolbar.setObjectName("drawing_left_toolbar")
-        self.left_toolbar.setFixedWidth(56)
+        self.left_toolbar.setFixedWidth(72)
 
         layout = QVBoxLayout(self.left_toolbar)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -680,8 +696,28 @@ class DrawingBoardView(QWidget):
         self.tool_stack.addWidget(self._build_view_panel())
 
         self.tool_stack.setCurrentIndex(1)
-        layout.addWidget(self.tool_stack)
-        layout.addStretch()
+        layout.addWidget(self.tool_stack, 1)
+
+        # ---- 通用粗细滑块（底部，始终可见） ----
+        self.left_thickness_slider = QSlider(Qt.Orientation.Vertical)
+        self.left_thickness_slider.setRange(1, 80)
+        self.left_thickness_slider.setValue(self.pen_width)
+        self.left_thickness_slider.setFixedHeight(180)
+        self.left_thickness_slider.setFixedWidth(32)
+        self.left_thickness_slider.setToolTip("粗细（向上=细，向下=粗）")
+        self.left_thickness_slider.valueChanged.connect(self._on_thickness_changed)
+        layout.addWidget(self.left_thickness_slider, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # 箭头提示
+        thick_label = QLabel("▼粗")
+        thick_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        thick_label.setStyleSheet("font-size: 10px; color: #666;")
+        layout.addWidget(thick_label)
+
+        thin_label = QLabel("▲细")
+        thin_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        thin_label.setStyleSheet("font-size: 10px; color: #666;")
+        layout.addWidget(thin_label)
 
         middle_layout.addWidget(self.left_toolbar)
 
@@ -741,19 +777,18 @@ class DrawingBoardView(QWidget):
         return panel
 
     def _build_draw_panel(self) -> QWidget:
-        """绘制 Tab：画笔/喷枪/刷子/橡皮/取色/填充/文字 + 分隔线 + 矩形选择/自由选择。"""
+        """绘制 Tab：全部画笔 + 橡皮 + 取色 + 填充 + 文字 + 选择工具。"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(2, 4, 2, 4)
         layout.setSpacing(2)
 
-        draw_tools = [
-            ("pen", _DRAW_TOOLTIPS), ("airbrush", _DRAW_TOOLTIPS), ("brush", _DRAW_TOOLTIPS),
-            ("eraser", _DRAW_TOOLTIPS), ("color_picker", _DRAW_TOOLTIPS),
-            ("fill", _DRAW_TOOLTIPS), ("text", _DRAW_TOOLTIPS),
-        ]
-        for name, tips in draw_tools:
-            btn = self._make_tool_btn(name, name, checkable=True, tooltip=tips.get(name, ""))
+        # 绘制工具（画笔/橡皮/取色/填充/文字）
+        for name, _ in _DRAW_TOOLS:
+            if name in ("rect_select", "free_select"):
+                continue  # 选择工具放下面
+            btn = self._make_tool_btn(name, name, checkable=True,
+                                       tooltip=_DRAW_TOOLTIPS.get(name, ""))
             layout.addWidget(btn)
 
         # 分隔线
@@ -765,28 +800,24 @@ class DrawingBoardView(QWidget):
         layout.addSpacing(4)
 
         # 选择工具
-        for name, tooltip in [("rect_select", "矩形选择 - 框选图形"), ("free_select", "自由选择 - 自由曲线选区")]:
-            btn = self._make_tool_btn(name, name, checkable=True, tooltip=tooltip)
+        for sel_name in ("rect_select", "free_select"):
+            btn = self._make_tool_btn(sel_name, sel_name, checkable=True,
+                                       tooltip=_DRAW_TOOLTIPS.get(sel_name, ""))
             layout.addWidget(btn)
 
         layout.addStretch()
         return panel
 
     def _build_shape_panel(self) -> QWidget:
-        """形状 Tab：直线/曲线/矩形/圆角矩形/椭圆/三角形/星形/箭头/对话框。"""
+        """形状 Tab：全部形状工具。"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(2, 4, 2, 4)
         layout.setSpacing(2)
 
-        for name, tooltip in _SHAPE_TOOLTIPS.items():
-            # 查找 _SHAPE_TOOLS 中对应的按钮名
-            shape_name = name
-            for sn, _ in _SHAPE_TOOLS:
-                if sn == name:
-                    shape_name = sn
-                    break
-            btn = self._make_tool_btn(shape_name, shape_name, checkable=True, tooltip=tooltip)
+        for name, _ in _SHAPE_TOOLS:
+            btn = self._make_tool_btn(name, name, checkable=True,
+                                       tooltip=_SHAPE_TOOLTIPS.get(name, ""))
             layout.addWidget(btn)
 
         layout.addStretch()
@@ -1071,7 +1102,11 @@ class DrawingBoardView(QWidget):
             self.insert_to_note_requested.emit()
 
     def _set_tool(self, name: str):
-        """切换当前工具：deactivate 旧工具，实例化新工具。"""
+        """切换当前工具：deactivate 旧工具，实例化新工具，独立恢复粗细。"""
+        # 保存上一个工具的粗细
+        if self.current_tool_name != name:
+            self._tool_thickness[self.current_tool_name] = self.pen_width
+
         # deactivate 旧工具
         if self.current_tool is not None:
             try:
@@ -1088,22 +1123,27 @@ class DrawingBoardView(QWidget):
         btn = self._tool_buttons.get(name)
         if btn is not None and btn.isCheckable() and not btn.isChecked():
             btn.setChecked(True)
-        # 设置画布光标：有自定义光标则覆盖；无则保留 activate() 设置的系统光标；
-        # 仅当工具创建失败（current_tool 为 None）时回退到箭头光标
+        # 设置画布光标
         cursor = create_tool_cursor(name)
         if cursor is not None:
             self.view.setCursor(cursor)
         elif self.current_tool is None:
             self.view.setCursor(Qt.CursorShape.ArrowCursor)
-        # 按工具动态调整粗细滑块范围 + 默认值
+        # 加载该工具的独立粗细
         smin, smax, sdefault = _tool_thickness_range(name)
+        saved = self._tool_thickness.get(name, sdefault)
+        clamped = min(max(saved, smin), smax)
+        self.pen_width = clamped
+        # 同步双滑块
         self.thickness_slider.blockSignals(True)
         self.thickness_slider.setRange(smin, smax)
-        clamped = min(max(self.pen_width, smin), smax)
         self.thickness_slider.setValue(clamped)
-        self.pen_width = clamped
-        self.thickness_value_label.setText(f"{clamped}px（{smin}-{smax}）")
         self.thickness_slider.blockSignals(False)
+        self.left_thickness_slider.blockSignals(True)
+        self.left_thickness_slider.setRange(smin, smax)
+        self.left_thickness_slider.setValue(clamped)
+        self.left_thickness_slider.blockSignals(False)
+        self.thickness_value_label.setText(f"{clamped}px（{smin}-{smax}）")
         self._update_status_tool()
 
     def _set_active_color(self, which: str):
@@ -1134,7 +1174,19 @@ class DrawingBoardView(QWidget):
             self._refresh_color_styles()
 
     def _on_thickness_changed(self, value: int):
+        """粗细滑块变化：同步 pen_width + 存储当前工具独立值 + 双滑块互相同步。"""
         self.pen_width = value
+        self._tool_thickness[self.current_tool_name] = value
+        # 双滑块同步（避免递归触发）
+        sender = self.sender()
+        if sender is self.thickness_slider:
+            self.left_thickness_slider.blockSignals(True)
+            self.left_thickness_slider.setValue(value)
+            self.left_thickness_slider.blockSignals(False)
+        elif sender is self.left_thickness_slider:
+            self.thickness_slider.blockSignals(True)
+            self.thickness_slider.setValue(value)
+            self.thickness_slider.blockSignals(False)
         self.thickness_value_label.setText(f"{value}px")
 
     def _on_fill_toggled(self, checked: bool):
