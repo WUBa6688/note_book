@@ -20,15 +20,15 @@ from __future__ import annotations
 import math
 import random
 
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRectF, QRect, QPointF, QTimer
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRectF, QRect, QPointF
 from PyQt6.QtGui import (
     QColor, QPen, QBrush, QPixmap, QPainter, QPainterPath, QImage, QFont,
-    QPolygonF, QPalette, QAbstractTextDocumentLayout,
+    QPolygonF, QPalette,
 )
 from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsPathItem, QGraphicsLineItem, QGraphicsRectItem,
     QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsPixmapItem,
-    QGraphicsTextItem, QGraphicsItemGroup, QInputDialog,
+    QGraphicsTextItem, QGraphicsItemGroup, QInputDialog, QStyle,
 )
 
 # drawing_commands 仅依赖 PyQt6，无循环导入风险，可直接顶层导入
@@ -712,11 +712,6 @@ class RotatableTextItem(QGraphicsTextItem):
         self._width = 180.0
         self._height = 40.0
 
-        # 光标闪烁
-        self._cursor_visible = True
-        self._blink_timer = QTimer()
-        self._blink_timer.timeout.connect(self._blink_cursor)
-
         # 交互标志
         self._mode = None
         self._resize_handle = -1
@@ -732,6 +727,7 @@ class RotatableTextItem(QGraphicsTextItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setAcceptHoverEvents(True)
+        self._sync_text_document_geometry()
 
     # ---- 几何与旋转 ----
     def rotation_angle(self) -> float:
@@ -740,10 +736,7 @@ class RotatableTextItem(QGraphicsTextItem):
     def set_rotation_angle(self, angle: float):
         self._rotation = angle
         self.prepareGeometryChange()
-        # 旋转中心应为文字内容区中心（不是 boundingRect 中心）
-        s = self.HANDLE_SIZE
-        content_center = QPointF(s + self._width / 2, s + self._height / 2)
-        self.setTransformOriginPoint(content_center)
+        self.setTransformOriginPoint(self.content_rect().center())
         self.setRotation(angle)
         self.update()
 
@@ -769,7 +762,16 @@ class RotatableTextItem(QGraphicsTextItem):
         font = self.font()
         font.setPointSizeF(self._font_size)
         self.setFont(font)
+        self._sync_text_document_geometry()
         self.update()
+
+    def content_rect(self) -> QRectF:
+        return QRectF(0, 0, self._width, self._height)
+
+    def _sync_text_document_geometry(self):
+        doc = self.document()
+        doc.setTextWidth(self._width)
+        self.setTextWidth(self._width)
 
     def boundingRect(self):
         # 边框四周留出空间绘制手柄，顶部额外留出旋转按钮空间
@@ -781,19 +783,16 @@ class RotatableTextItem(QGraphicsTextItem):
     # ---- 手柄位置计算 ----
     def _handle_local_pos(self, handle: int) -> QPointF:
         """返回手柄在 item 本地坐标系中的位置。"""
-        br = self.boundingRect()
-        s = self.HANDLE_SIZE
         w, h = self._width, self._height
-        # 边框内容区左上为 (s, s)，右下为 (s+w, s+h)
         positions = {
-            self.HANDLE_TL: QPointF(s, s),
-            self.HANDLE_T:  QPointF(s + w / 2, s),
-            self.HANDLE_TR: QPointF(s + w, s),
-            self.HANDLE_L:  QPointF(s, s + h / 2),
-            self.HANDLE_R:  QPointF(s + w, s + h / 2),
-            self.HANDLE_BL: QPointF(s, s + h),
-            self.HANDLE_B:  QPointF(s + w / 2, s + h),
-            self.HANDLE_BR: QPointF(s + w, s + h),
+            self.HANDLE_TL: QPointF(0, 0),
+            self.HANDLE_T:  QPointF(w / 2, 0),
+            self.HANDLE_TR: QPointF(w, 0),
+            self.HANDLE_L:  QPointF(0, h / 2),
+            self.HANDLE_R:  QPointF(w, h / 2),
+            self.HANDLE_BL: QPointF(0, h),
+            self.HANDLE_B:  QPointF(w / 2, h),
+            self.HANDLE_BR: QPointF(w, h),
         }
         return positions.get(handle, QPointF())
 
@@ -803,9 +802,8 @@ class RotatableTextItem(QGraphicsTextItem):
 
     def _rotate_handle_local_pos(self) -> QPointF:
         """旋转按钮本地坐标（边框上方）。"""
-        s = self.HANDLE_SIZE
         w = self._width
-        return QPointF(s + w / 2, -self.ROTATE_OFFSET)
+        return QPointF(w / 2, -self.ROTATE_OFFSET)
 
     def _rotate_handle_scene_pos(self) -> QPointF:
         return self.sceneTransform().map(self._rotate_handle_local_pos())
@@ -833,38 +831,19 @@ class RotatableTextItem(QGraphicsTextItem):
         is_editing = (self is RotatableTextItem._current_editing_item)
         is_selected = self.isSelected() and not is_editing
 
-        # 1. 绘制文字本体
-        painter.save()
-        text_rect = QRectF(s, s, w, h)
-        painter.setClipRect(text_rect)
-        doc = self.document()
-        doc.setTextWidth(w)
-        doc.setPlainText(self.toPlainText())
-        doc.setDefaultFont(self.font())
-        painter.translate(s, s)
-        painter.setPen(QPen(QColor("#111111")))
-        doc.drawContents(painter)
-
-        # 编辑态：绘制闪烁光标
-        if is_editing and self._cursor_visible:
-            cursor = self.textCursor()
-            pos = cursor.position()
-            fm = painter.fontMetrics()
-            text_before = self.toPlainText()[:pos]
-            cx = fm.horizontalAdvance(text_before)
-            cursor_y_top = 0
-            cursor_y_bot = fm.height()
-            painter.setClipping(False)
-            painter.setPen(QPen(QColor("#111111"), 1))
-            painter.drawLine(
-                QPointF(cx, cursor_y_top),
-                QPointF(cx, cursor_y_bot))
-        painter.restore()
+        # 1. 绘制文字本体与原生文本光标。
+        # QGraphicsTextItem 已经处理文字布局、输入法、选区和光标；这里只负责外围装饰。
+        self._sync_text_document_geometry()
+        try:
+            option.state &= ~QStyle.StateFlag.State_Selected
+        except Exception:
+            pass
+        super().paint(painter, option, widget)
 
         # 2. 绘制边框（编辑态 / 选中态）
         if is_editing or is_selected:
             painter.save()
-            frame = QRectF(s, s, w, h)
+            frame = self.content_rect()
             pen = QPen(QColor("#2563EB"), 1.2 if is_editing else 1.5, Qt.PenStyle.DashLine)
             painter.setPen(pen)
             painter.setBrush(QBrush(QColor(255, 255, 255, 30)))
@@ -881,7 +860,7 @@ class RotatableTextItem(QGraphicsTextItem):
 
                 rp_local = self._rotate_handle_local_pos()
                 painter.setPen(QPen(QColor("#2563EB"), 1.5, Qt.PenStyle.SolidLine))
-                painter.drawLine(QPointF(s + w / 2, s), rp_local)
+                painter.drawLine(QPointF(w / 2, 0), rp_local)
 
                 painter.setPen(QPen(QColor("#2563EB"), 2))
                 painter.setBrush(QBrush(QColor("#FFFFFF")))
@@ -900,25 +879,16 @@ class RotatableTextItem(QGraphicsTextItem):
                                          ay + 3 * math.sin(angle - 0.4)))
             painter.restore()
 
-    # ---- 光标闪烁 ----
-    def _blink_cursor(self):
-        self._cursor_visible = not self._cursor_visible
+    def start_cursor_blink(self):
         self.update()
 
-    def start_cursor_blink(self):
-        self._cursor_visible = True
-        self._blink_timer.start(500)
-
     def stop_cursor_blink(self):
-        self._blink_timer.stop()
-        self._cursor_visible = True
         self.update()
 
     def shape(self):
         path = QPainterPath()
         br = self.boundingRect()
         path.addRect(br)
-        # 包含旋转按钮
         rp = self._rotate_handle_local_pos()
         path.addEllipse(rp, self.HANDLE_SIZE + 4, self.HANDLE_SIZE + 4)
         return path
@@ -1004,10 +974,7 @@ class TextTool(BaseTool):
                 if handle == item.HANDLE_ROTATE:
                     self._mode = "rotate"
                     self._rotate_item = item
-                    s = item.HANDLE_SIZE
-                    local_center = QPointF(s + item.text_width() / 2,
-                                           s + item.text_height() / 2)
-                    self._rotate_center = item.sceneTransform().map(local_center)
+                    self._rotate_center = item.sceneTransform().map(item.content_rect().center())
                     self._rotate_start_angle = math.degrees(
                         math.atan2(scene_pos.y() - self._rotate_center.y(),
                                    scene_pos.x() - self._rotate_center.x()))
@@ -1114,11 +1081,10 @@ class TextTool(BaseTool):
         item = self._resize_item
         handle = self._resize_handle
         local_pos = item.sceneTransform().inverted()[0].map(scene_pos)
-        s = item.HANDLE_SIZE
-        frame_left = s
-        frame_top = s
-        frame_right = s + self._resize_start_w
-        frame_bottom = s + self._resize_start_h
+        frame_left = 0.0
+        frame_top = 0.0
+        frame_right = self._resize_start_w
+        frame_bottom = self._resize_start_h
 
         if handle in (item.HANDLE_TL, item.HANDLE_L, item.HANDLE_BL):
             frame_left = local_pos.x()
@@ -1132,18 +1098,13 @@ class TextTool(BaseTool):
         new_w = max(30.0, frame_right - frame_left)
         new_h = max(20.0, frame_bottom - frame_top)
 
-        # 计算各方向的缩放比例
-        sx = new_w / self._resize_start_w
-        sy = new_h / self._resize_start_h
-        # 文字与输入框等比缩放：字号按几何平均，保证变形最小
-        scale = math.sqrt(max(0.0001, sx * sy))
-        new_font = max(6.0, self._resize_start_font * scale)
+        new_font = self._font_size_for_resize(handle, new_w, new_h)
 
         # 调整位置（左上/上/右上/左/左下手柄需要移动 item）
         if handle in (item.HANDLE_TL, item.HANDLE_T, item.HANDLE_TR,
                       item.HANDLE_L, item.HANDLE_BL):
-            dx_local = frame_left - s
-            dy_local = frame_top - s
+            dx_local = frame_left
+            dy_local = frame_top
             transform = item.sceneTransform()
             dx_scene = transform.map(QPointF(dx_local, 0)).x() - transform.map(QPointF(0, 0)).x()
             dy_scene = transform.map(QPointF(0, dy_local)).y() - transform.map(QPointF(0, 0)).y()
@@ -1151,6 +1112,15 @@ class TextTool(BaseTool):
 
         item.set_text_size(new_w, new_h, new_font)
         self.scene.invalidate()
+
+    def _font_size_for_resize(self, handle: int, new_w: float, new_h: float) -> float:
+        if handle in (RotatableTextItem.HANDLE_L, RotatableTextItem.HANDLE_R,
+                      RotatableTextItem.HANDLE_T, RotatableTextItem.HANDLE_B):
+            return self._resize_start_font
+        sx = new_w / max(1.0, self._resize_start_w)
+        sy = new_h / max(1.0, self._resize_start_h)
+        scale = math.sqrt(max(0.0001, sx * sy))
+        return max(6.0, self._resize_start_font * scale)
 
     def mouse_release(self, event, scene_pos):
         if self._mode == "move":
@@ -1284,10 +1254,7 @@ class _SelectToolBase(BaseTool):
                 if handle == it.HANDLE_ROTATE:
                     self._mode = "rotate"
                     self._rotate_item = it
-                    s = it.HANDLE_SIZE
-                    local_center = QPointF(s + it.text_width() / 2,
-                                           s + it.text_height() / 2)
-                    self._rotate_center = it.sceneTransform().map(local_center)
+                    self._rotate_center = it.sceneTransform().map(it.content_rect().center())
                     self._rotate_start_angle = math.degrees(
                         math.atan2(scene_pos.y() - self._rotate_center.y(),
                                    scene_pos.x() - self._rotate_center.x()))
@@ -1356,11 +1323,10 @@ class _SelectToolBase(BaseTool):
         item = self._resize_item
         handle = self._resize_handle
         local_pos = item.sceneTransform().inverted()[0].map(scene_pos)
-        s = item.HANDLE_SIZE
-        frame_left = s
-        frame_top = s
-        frame_right = s + self._resize_start_w
-        frame_bottom = s + self._resize_start_h
+        frame_left = 0.0
+        frame_top = 0.0
+        frame_right = self._resize_start_w
+        frame_bottom = self._resize_start_h
 
         if handle in (item.HANDLE_TL, item.HANDLE_L, item.HANDLE_BL):
             frame_left = local_pos.x()
@@ -1373,13 +1339,12 @@ class _SelectToolBase(BaseTool):
 
         new_w = max(30.0, frame_right - frame_left)
         new_h = max(20.0, frame_bottom - frame_top)
-        scale = new_h / self._resize_start_h
-        new_font = max(6.0, self._resize_start_font * scale)
+        new_font = self._font_size_for_resize(handle, new_w, new_h)
 
         if handle in (item.HANDLE_TL, item.HANDLE_T, item.HANDLE_TR,
                       item.HANDLE_L, item.HANDLE_BL):
-            dx_local = frame_left - s
-            dy_local = frame_top - s
+            dx_local = frame_left
+            dy_local = frame_top
             transform = item.sceneTransform()
             dx_scene = transform.map(QPointF(dx_local, 0)).x() - transform.map(QPointF(0, 0)).x()
             dy_scene = transform.map(QPointF(0, dy_local)).y() - transform.map(QPointF(0, 0)).y()
@@ -1387,6 +1352,15 @@ class _SelectToolBase(BaseTool):
 
         item.set_text_size(new_w, new_h, new_font)
         self.scene.invalidate()
+
+    def _font_size_for_resize(self, handle: int, new_w: float, new_h: float) -> float:
+        if handle in (RotatableTextItem.HANDLE_L, RotatableTextItem.HANDLE_R,
+                      RotatableTextItem.HANDLE_T, RotatableTextItem.HANDLE_B):
+            return self._resize_start_font
+        sx = new_w / max(1.0, self._resize_start_w)
+        sy = new_h / max(1.0, self._resize_start_h)
+        scale = math.sqrt(max(0.0001, sx * sy))
+        return max(6.0, self._resize_start_font * scale)
 
     def mouse_release(self, event, scene_pos):
         if self._mode == "move":

@@ -115,7 +115,11 @@ class TextFormatToolbar(QFrame):
         self._updating = True
         font = item.font()
         self.font_combo.setCurrentFont(font)
-        self.size_spin.setValue(max(1, font.pointSize() if font.pointSize() > 0 else 12))
+        if hasattr(item, "font_size"):
+            size = int(round(item.font_size()))
+        else:
+            size = font.pointSize() if font.pointSize() > 0 else 12
+        self.size_spin.setValue(max(1, size))
         self.bold_btn.setChecked(font.bold())
         self.italic_btn.setChecked(font.italic())
         self.underline_btn.setChecked(font.underline())
@@ -220,7 +224,16 @@ class TextFormatToolbar(QFrame):
         font.setItalic(self.italic_btn.isChecked())
         font.setUnderline(self.underline_btn.isChecked())
         font.setStrikeOut(self.strike_btn.isChecked())
+        if hasattr(self._target, "set_text_size") and hasattr(self._target, "text_width"):
+            self._target.set_text_size(
+                self._target.text_width(),
+                self._target.text_height(),
+                float(self.size_spin.value()),
+            )
+        else:
+            self._target.setFont(font)
         self._target.setFont(font)
+        self._target.update()
 
     def _on_align_changed(self, idx: int):
         if self._target is None or self._updating:

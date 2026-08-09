@@ -10,6 +10,7 @@ from PyQt6.QtGui import (
     QSyntaxHighlighter, QTextCharFormat, QColor, QFont, QTextCursor,
     QKeySequence, QShortcut, QTextBlockFormat, QTextDocument,
     QPixmap, QPainter, QIcon, QBrush, QPen, QImage, QTextImageFormat, QPalette,
+    QTextFormat,
     QAction, QPainterPath, QFontMetrics, QGuiApplication, QTransform
 )
 from PyQt6.QtWidgets import (
@@ -1507,6 +1508,7 @@ class MarkdownEditor(QWidget):
         self.font_size_combo.currentIndexChanged.connect(self._apply_font_size_to_selection)
         self.text_color_btn.clicked.connect(self._choose_text_color)
         self.highlight_color_btn.clicked.connect(self._choose_highlight_color)
+        self._hide_non_persistent_style_controls()
         self.edit.paste_image_requested.connect(self._handle_paste_image)
         self.edit.image_clicked.connect(self._open_image_viewer)
         self.bg_image_btn.clicked.connect(self._show_background_menu)
@@ -1528,6 +1530,15 @@ class MarkdownEditor(QWidget):
         self._outline_timer.setSingleShot(True)
         self._outline_timer.setInterval(300)
         self._outline_timer.timeout.connect(self._update_outline)
+
+    def _hide_non_persistent_style_controls(self):
+        for widget in (
+            self.font_size_label,
+            self.font_size_combo,
+            self.text_color_btn,
+            self.highlight_color_btn,
+        ):
+            widget.hide()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -2511,6 +2522,13 @@ class MarkdownEditor(QWidget):
         cat_id = self._current_category_id()
         self.content_changed.emit(title, content, cat_id)
 
+    def flush_pending_save(self):
+        if self._save_timer.isActive():
+            self._save_timer.stop()
+            self._dirty = True
+        if self._dirty:
+            self._do_notify_save()
+
     def _current_category_id(self):
         idx = self.category_combo.currentIndex()
         if idx < 0:
@@ -2580,4 +2598,4 @@ class MarkdownEditor(QWidget):
         return self.title_edit.text()
 
     def get_content_sync(self) -> str:
-        return self.edit.toPlainText()
+        return self._extract_markdown_from_doc()

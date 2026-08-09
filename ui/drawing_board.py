@@ -607,7 +607,7 @@ class DrawingBoardView(QWidget):
         root.addLayout(middle, 1)
 
         # 状态栏
-        self.status_label = QLabel("就绪 · 画布 800×600 · 缩放 100% · 工具：画笔 · 滚轮缩放: 关")
+        self.status_label = QLabel("坐标 (0, 0) · 缩放 100% · 工具：画笔")
         self.status_label.setObjectName("drawing_status")
         root.addWidget(self.status_label)
 
@@ -1533,14 +1533,24 @@ class DrawingBoardView(QWidget):
 
     def _on_scene_selection_changed(self):
         """场景选中变化时联动富文本工具栏：选中文字项则显示，否则隐藏。"""
+        if self.text_toolbar is None:
+            return
+        try:
+            from .drawing_tools import RotatableTextItem
+            editing = RotatableTextItem._current_editing_item
+        except Exception:
+            editing = None
+        if editing is not None and editing.scene() is self.scene:
+            self.text_toolbar.setTargetItem(editing)
+            return
         text_item: Optional[QGraphicsTextItem] = None
         for it in self.scene.selectedItems():
             if isinstance(it, QGraphicsTextItem) and it is not self._canvas_bg_item:
                 text_item = it
                 break
-        if text_item is not None and self.text_toolbar is not None:
+        if text_item is not None:
             self.text_toolbar.setTargetItem(text_item)
-        elif self.text_toolbar is not None:
+        else:
             self.text_toolbar.clearTarget()
 
     # -------------------------------------------------------------------
@@ -1685,8 +1695,8 @@ class DrawingBoardView(QWidget):
         wheel = "开" if self.wheel_zoom_enabled else "关"
         prefix = f"{msg} · " if msg else ""
         self.status_label.setText(
-            f"{prefix}坐标 ({coord[0]}, {coord[1]}) · 画布 {CANVAS_WIDTH}×{CANVAS_HEIGHT} · "
-            f"缩放 {self.zoom_level}% · 工具：{label} · 滚轮缩放: {wheel}"
+            f"{prefix}坐标 ({coord[0]}, {coord[1]}) · 缩放 {self.zoom_level}% · "
+            f"工具：{label} · 滚轮缩放 {wheel}"
         )
 
     # -------------------------------------------------------------------

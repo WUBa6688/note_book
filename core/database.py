@@ -23,6 +23,9 @@ class Note:
     updated_at: str
 
 
+_UNSET = object()
+
+
 def _app_data_root() -> str:
     p = os.path.join(os.path.expanduser("~"), ".zhuibook")
     os.makedirs(p, exist_ok=True)
@@ -271,14 +274,14 @@ def zhuibook_demo():
 
     def update_note(self, note_id: int, title: Optional[str] = None,
                     content: Optional[str] = None,
-                    category_id: Optional[int] = None) -> Optional[Note]:
+                    category_id=_UNSET) -> Optional[Note]:
         note = self.get_note(note_id)
         if not note:
             return None
         now = self._now()
         new_title = title if title is not None else note.title
         new_content = content if content is not None else note.content
-        new_cat = category_id if category_id is not None else note.category_id
+        new_cat = note.category_id if category_id is _UNSET else category_id
         cursor = self.conn.cursor()
         cursor.execute(
             "UPDATE notes SET title = ?, content = ?, category_id = ?, updated_at = ? WHERE id = ?",

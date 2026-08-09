@@ -150,6 +150,7 @@ class MainWindow(QMainWindow):
             self._open_note(notes[0].id)
 
     def _open_note(self, note_id: int):
+        self._flush_editor_save()
         note = self.db.get_note(note_id)
         if not note:
             return
@@ -164,6 +165,7 @@ class MainWindow(QMainWindow):
         self._update_status(f"📝 打开笔记: {note.title or '无标题'}")
 
     def _save_current_if_needed(self):
+        self._flush_editor_save()
         if not self.current_note_id or not self._pending_save:
             return
         title = self.editor.get_title_sync()
@@ -173,6 +175,10 @@ class MainWindow(QMainWindow):
         self.db.update_note(self.current_note_id, title=title, content=content, category_id=cat_id)
         self._pending_save = False
         self.sidebar.refresh_notes()
+
+    def _flush_editor_save(self):
+        if self.current_note_id and hasattr(self.editor, "flush_pending_save"):
+            self.editor.flush_pending_save()
 
     def _refresh_editor_categories(self):
         categories = self.db.get_all_categories()
@@ -242,6 +248,7 @@ class MainWindow(QMainWindow):
         if not self.current_note_id:
             self._update_status("⚠️ 当前没有打开的笔记")
             return
+        self._flush_editor_save()
         title = self.editor.get_title_sync()
         content = self.editor.get_content_sync()
         cat_idx = self.editor.category_combo.currentIndex()
@@ -283,6 +290,7 @@ class MainWindow(QMainWindow):
         self._update_status(f"✅ 画板已插入笔记：{md_path}")
 
     def closeEvent(self, event):
+        self._flush_editor_save()
         # 笔记未保存内容确认
         if self._pending_save and self.current_note_id:
             reply = QMessageBox.question(
