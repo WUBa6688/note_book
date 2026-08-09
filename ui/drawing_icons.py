@@ -32,7 +32,14 @@ class DrawingIcon:
 
         dispatch = {
             "pen": DrawingIcon._draw_pen,
+            "brush_pen": DrawingIcon._draw_brush_pen,
+            "writing_pen": DrawingIcon._draw_writing_pen,
             "airbrush": DrawingIcon._draw_airbrush,
+            "oil_brush": DrawingIcon._draw_oil_brush,
+            "crayon": DrawingIcon._draw_crayon,
+            "marker": DrawingIcon._draw_marker,
+            "pencil": DrawingIcon._draw_pencil,
+            "watercolor": DrawingIcon._draw_watercolor,
             "brush": DrawingIcon._draw_brush,
             "eraser": DrawingIcon._draw_eraser,
             "color_picker": DrawingIcon._draw_color_picker,
@@ -46,9 +53,17 @@ class DrawingIcon:
             "round_rect": DrawingIcon._draw_round_rect,
             "ellipse": DrawingIcon._draw_ellipse,
             "triangle": DrawingIcon._draw_triangle,
+            "square": DrawingIcon._draw_square,
+            "circle": DrawingIcon._draw_circle,
+            "diamond": DrawingIcon._draw_diamond,
+            "pentagon": DrawingIcon._draw_pentagon,
+            "hexagon": DrawingIcon._draw_hexagon,
             "star": DrawingIcon._draw_star,
             "arrow": DrawingIcon._draw_arrow,
             "dialog": DrawingIcon._draw_dialog,
+            "heart": DrawingIcon._draw_heart,
+            "right_triangle": DrawingIcon._draw_right_triangle,
+            "parallelogram": DrawingIcon._draw_parallelogram,
             "undo": DrawingIcon._draw_undo,
             "redo": DrawingIcon._draw_redo,
             "clear": DrawingIcon._draw_clear,
@@ -397,3 +412,169 @@ class DrawingIcon:
         p.setBrush(QBrush(QColor(color)))
         p.drawRect(QRectF(9, 5, 2, 6))
         p.setBrush(Qt.BrushStyle.NoBrush)
+
+    # ---- 画笔变体 ----
+
+    @staticmethod
+    def _draw_brush_pen(p: QPainter, color: str):
+        # 毛笔：粗笔触 + 尖头
+        pen = p.pen()
+        pen.setWidthF(4.0)
+        p.setPen(pen)
+        path = QPainterPath()
+        path.moveTo(5, 16)
+        path.cubicTo(8, 8, 12, 5, 16, 3)
+        p.drawPath(path)
+        # 尖头
+        p.setBrush(QBrush(QColor(color)))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(QPointF(15, 3), 1.5, 1.5)
+
+    @staticmethod
+    def _draw_writing_pen(p: QPainter, color: str):
+        # 书写笔：流畅曲线
+        pen = p.pen()
+        pen.setWidthF(2.0)
+        p.setPen(pen)
+        path = QPainterPath()
+        path.moveTo(3, 15)
+        path.cubicTo(6, 10, 10, 6, 17, 4)
+        p.drawPath(path)
+
+    @staticmethod
+    def _draw_oil_brush(p: QPainter, color: str):
+        # 油画笔：厚重笔触
+        pen = p.pen()
+        pen.setWidthF(5.0)
+        p.setPen(pen)
+        path = QPainterPath()
+        path.moveTo(4, 16)
+        path.cubicTo(10, 12, 14, 8, 17, 4)
+        p.drawPath(path)
+        # 油彩点
+        p.setBrush(QBrush(QColor(color)))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(QPointF(5, 15), 2, 2)
+        p.drawEllipse(QPointF(16, 5), 1.5, 1.5)
+
+    @staticmethod
+    def _draw_crayon(p: QPainter, color: str):
+        # 蜡笔：粗短线条
+        pen = p.pen()
+        pen.setWidthF(4.0)
+        pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+        p.setPen(pen)
+        p.drawLine(QPointF(4, 16), QPointF(16, 6))
+
+    @staticmethod
+    def _draw_marker(p: QPainter, color: str):
+        # 记号笔：粗直线 + 斜角
+        pen = p.pen()
+        pen.setWidthF(3.0)
+        p.setPen(pen)
+        p.drawLine(QPointF(3, 15), QPointF(15, 5))
+        # 斜角尖端
+        path = QPainterPath()
+        path.moveTo(15, 5)
+        path.lineTo(17, 3)
+        path.lineTo(18, 4)
+        path.lineTo(16, 6)
+        path.closeSubpath()
+        p.setBrush(QBrush(QColor(color)))
+        p.drawPath(path)
+
+    @staticmethod
+    def _draw_pencil(p: QPainter, color: str):
+        # 铅笔：经典形状
+        p.drawLine(QPointF(3, 17), QPointF(14, 6))
+        # 笔尖
+        path = QPainterPath()
+        path.moveTo(14, 6)
+        path.lineTo(17, 3)
+        path.lineTo(18, 5)
+        path.lineTo(15, 8)
+        path.closeSubpath()
+        p.setBrush(QBrush(QColor(color)))
+        p.drawPath(path)
+        # 橡皮擦
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(QPointF(3, 17), QPointF(5, 15))
+
+    @staticmethod
+    def _draw_watercolor(p: QPainter, color: str):
+        # 水彩笔：扩散笔触
+        pen = p.pen()
+        pen.setWidthF(2.5)
+        p.setPen(pen)
+        path = QPainterPath()
+        path.moveTo(4, 16)
+        path.cubicTo(7, 10, 12, 7, 17, 4)
+        p.drawPath(path)
+        # 水彩扩散点
+        c = QColor(color)
+        p.setBrush(QBrush(c))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(QPointF(8, 13), 1, 1)
+        p.drawEllipse(QPointF(12, 9), 1.2, 1.2)
+        p.drawEllipse(QPointF(15, 6), 0.8, 0.8)
+
+    # ---- 扩展形状 ----
+
+    @staticmethod
+    def _draw_square(p: QPainter, color: str):
+        # 正方形
+        p.drawRect(QRectF(4, 4, 12, 12))
+
+    @staticmethod
+    def _draw_circle(p: QPainter, color: str):
+        # 正圆
+        p.drawEllipse(QPointF(10, 10), 7, 7)
+
+    @staticmethod
+    def _draw_diamond(p: QPainter, color: str):
+        # 菱形
+        poly = QPolygonF([QPointF(10, 3), QPointF(17, 10), QPointF(10, 17), QPointF(3, 10)])
+        p.drawPolygon(poly)
+
+    @staticmethod
+    def _draw_pentagon(p: QPainter, color: str):
+        # 五边形
+        import math
+        cx, cy, r = 10, 10, 7
+        poly = QPolygonF()
+        for i in range(5):
+            angle = -math.pi / 2 + 2 * math.pi / 5 * i
+            poly.append(QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle)))
+        p.drawPolygon(poly)
+
+    @staticmethod
+    def _draw_hexagon(p: QPainter, color: str):
+        # 六边形
+        import math
+        cx, cy, r = 10, 10, 7
+        poly = QPolygonF()
+        for i in range(6):
+            angle = math.pi / 3 * i
+            poly.append(QPointF(cx + r * math.cos(angle), cy + r * math.sin(angle)))
+        p.drawPolygon(poly)
+
+    @staticmethod
+    def _draw_heart(p: QPainter, color: str):
+        # 爱心
+        path = QPainterPath()
+        path.moveTo(10, 16)
+        path.cubicTo(3, 10, 5, 3, 10, 7)
+        path.cubicTo(15, 3, 17, 10, 10, 16)
+        p.drawPath(path)
+
+    @staticmethod
+    def _draw_right_triangle(p: QPainter, color: str):
+        # 直角三角形
+        poly = QPolygonF([QPointF(4, 4), QPointF(4, 16), QPointF(16, 16)])
+        p.drawPolygon(poly)
+
+    @staticmethod
+    def _draw_parallelogram(p: QPainter, color: str):
+        # 平行四边形
+        poly = QPolygonF([QPointF(5, 4), QPointF(17, 4), QPointF(15, 16), QPointF(3, 16)])
+        p.drawPolygon(poly)

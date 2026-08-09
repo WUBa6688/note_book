@@ -973,10 +973,16 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QToolButton#tool_zoom_in, QToolButton#tool_zoom_out, QToolButton#tool_zoom_100,
         QToolButton#tool_zoom_fit, QToolButton#tool_copy, QToolButton#tool_cut,
         QToolButton#tool_paste, QToolButton#tool_select_all, QToolButton#tool_delete,
-        QToolButton#tool_custom_color, QToolButton#tool_fill_toggle,
-        QToolButton#tool_wheel_zoom_toggle {{
+        QToolButton#tool_pen_menu, QToolButton#tool_custom_color, QToolButton#tool_fill_toggle,
+        QToolButton#tool_wheel_zoom_toggle,
+        QToolButton#tool_brush_pen, QToolButton#tool_writing_pen, QToolButton#tool_oil_brush,
+        QToolButton#tool_crayon, QToolButton#tool_marker, QToolButton#tool_pencil,
+        QToolButton#tool_watercolor,
+        QToolButton#tool_square, QToolButton#tool_circle, QToolButton#tool_diamond,
+        QToolButton#tool_pentagon, QToolButton#tool_hexagon, QToolButton#tool_heart,
+        QToolButton#tool_right_triangle, QToolButton#tool_parallelogram {{
             background: transparent;
-            border: 2px solid transparent;
+            border: none;
             border-radius: 8px;
             padding: 4px;
             margin: 1px;
@@ -991,10 +997,16 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QToolButton#tool_zoom_in:hover, QToolButton#tool_zoom_out:hover, QToolButton#tool_zoom_100:hover,
         QToolButton#tool_zoom_fit:hover, QToolButton#tool_copy:hover, QToolButton#tool_cut:hover,
         QToolButton#tool_paste:hover, QToolButton#tool_select_all:hover, QToolButton#tool_delete:hover,
-        QToolButton#tool_custom_color:hover, QToolButton#tool_fill_toggle:hover,
-        QToolButton#tool_wheel_zoom_toggle:hover {{
+        QToolButton#tool_pen_menu:hover, QToolButton#tool_custom_color:hover, QToolButton#tool_fill_toggle:hover,
+        QToolButton#tool_wheel_zoom_toggle:hover,
+        QToolButton#tool_brush_pen:hover, QToolButton#tool_writing_pen:hover, QToolButton#tool_oil_brush:hover,
+        QToolButton#tool_crayon:hover, QToolButton#tool_marker:hover, QToolButton#tool_pencil:hover,
+        QToolButton#tool_watercolor:hover,
+        QToolButton#tool_square:hover, QToolButton#tool_circle:hover, QToolButton#tool_diamond:hover,
+        QToolButton#tool_pentagon:hover, QToolButton#tool_hexagon:hover, QToolButton#tool_heart:hover,
+        QToolButton#tool_right_triangle:hover, QToolButton#tool_parallelogram:hover {{
             background: {t['list_hover_bg']};
-            border: 2px solid {t['border']};
+            border: none;
         }}
         QToolButton#tool_pen:checked, QToolButton#tool_airbrush:checked, QToolButton#tool_brush:checked,
         QToolButton#tool_eraser:checked, QToolButton#tool_color_picker:checked, QToolButton#tool_fill:checked,
@@ -1006,10 +1018,16 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QToolButton#tool_zoom_in:checked, QToolButton#tool_zoom_out:checked, QToolButton#tool_zoom_100:checked,
         QToolButton#tool_zoom_fit:checked, QToolButton#tool_copy:checked, QToolButton#tool_cut:checked,
         QToolButton#tool_paste:checked, QToolButton#tool_select_all:checked, QToolButton#tool_delete:checked,
-        QToolButton#tool_custom_color:checked, QToolButton#tool_fill_toggle:checked,
-        QToolButton#tool_wheel_zoom_toggle:checked {{
+        QToolButton#tool_pen_menu:checked, QToolButton#tool_custom_color:checked, QToolButton#tool_fill_toggle:checked,
+        QToolButton#tool_wheel_zoom_toggle:checked,
+        QToolButton#tool_brush_pen:checked, QToolButton#tool_writing_pen:checked, QToolButton#tool_oil_brush:checked,
+        QToolButton#tool_crayon:checked, QToolButton#tool_marker:checked, QToolButton#tool_pencil:checked,
+        QToolButton#tool_watercolor:checked,
+        QToolButton#tool_square:checked, QToolButton#tool_circle:checked, QToolButton#tool_diamond:checked,
+        QToolButton#tool_pentagon:checked, QToolButton#tool_hexagon:checked, QToolButton#tool_heart:checked,
+        QToolButton#tool_right_triangle:checked, QToolButton#tool_parallelogram:checked {{
             background: {t['primary']};
-            border: 2px solid {t['primary']};
+            border: none;
         }}
         QToolButton#tool_pen:checked:hover, QToolButton#tool_airbrush:checked:hover,
         QToolButton#tool_brush:checked:hover, QToolButton#tool_eraser:checked:hover,
@@ -1025,10 +1043,16 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QToolButton#tool_zoom_100:checked:hover, QToolButton#tool_zoom_fit:checked:hover,
         QToolButton#tool_copy:checked:hover, QToolButton#tool_cut:checked:hover,
         QToolButton#tool_paste:checked:hover, QToolButton#tool_select_all:checked:hover,
-        QToolButton#tool_delete:checked:hover, QToolButton#tool_custom_color:checked:hover,
-        QToolButton#tool_fill_toggle:checked:hover, QToolButton#tool_wheel_zoom_toggle:checked:hover {{
+        QToolButton#tool_delete:checked:hover, QToolButton#tool_pen_menu:checked:hover, QToolButton#tool_custom_color:checked:hover, QToolButton#tool_fill_toggle:checked:hover,
+        QToolButton#tool_wheel_zoom_toggle:checked:hover,
+        QToolButton#tool_brush_pen:checked:hover, QToolButton#tool_writing_pen:checked:hover, QToolButton#tool_oil_brush:checked:hover,
+        QToolButton#tool_crayon:checked:hover, QToolButton#tool_marker:checked:hover, QToolButton#tool_pencil:checked:hover,
+        QToolButton#tool_watercolor:checked:hover,
+        QToolButton#tool_square:checked:hover, QToolButton#tool_circle:checked:hover, QToolButton#tool_diamond:checked:hover,
+        QToolButton#tool_pentagon:checked:hover, QToolButton#tool_hexagon:checked:hover, QToolButton#tool_heart:checked:hover,
+        QToolButton#tool_right_triangle:checked:hover, QToolButton#tool_parallelogram:checked:hover {{
             background: {t['primary_hover_top']};
-            border: 2px solid {t['primary_hover_top']};
+            border: none;
         }}
         QToolButton#tool_pen:pressed, QToolButton#tool_airbrush:pressed, QToolButton#tool_brush:pressed,
         QToolButton#tool_eraser:pressed, QToolButton#tool_color_picker:pressed, QToolButton#tool_fill:pressed,
@@ -1040,10 +1064,63 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
         QToolButton#tool_zoom_in:pressed, QToolButton#tool_zoom_out:pressed, QToolButton#tool_zoom_100:pressed,
         QToolButton#tool_zoom_fit:pressed, QToolButton#tool_copy:pressed, QToolButton#tool_cut:pressed,
         QToolButton#tool_paste:pressed, QToolButton#tool_select_all:pressed, QToolButton#tool_delete:pressed,
-        QToolButton#tool_custom_color:pressed, QToolButton#tool_fill_toggle:pressed,
-        QToolButton#tool_wheel_zoom_toggle:pressed {{
+        QToolButton#tool_pen_menu:pressed, QToolButton#tool_custom_color:pressed, QToolButton#tool_fill_toggle:pressed,
+        QToolButton#tool_wheel_zoom_toggle:pressed,
+        QToolButton#tool_brush_pen:pressed, QToolButton#tool_writing_pen:pressed, QToolButton#tool_oil_brush:pressed,
+        QToolButton#tool_crayon:pressed, QToolButton#tool_marker:pressed, QToolButton#tool_pencil:pressed,
+        QToolButton#tool_watercolor:pressed,
+        QToolButton#tool_square:pressed, QToolButton#tool_circle:pressed, QToolButton#tool_diamond:pressed,
+        QToolButton#tool_pentagon:pressed, QToolButton#tool_hexagon:pressed, QToolButton#tool_heart:pressed,
+        QToolButton#tool_right_triangle:pressed, QToolButton#tool_parallelogram:pressed {{
             background: {t['primary_pressed_top']};
-            border: 2px solid {t['primary_pressed_top']};
+            border: none;
+        }}
+        /* 工具面板滚动区 */
+        QScrollArea#drawing_tool_scroll {{
+            background: transparent;
+            border: none;
+        }}
+        QScrollArea#drawing_tool_scroll > QWidget#qt_scrollarea_viewport {{
+            background: transparent;
+        }}
+        QScrollArea#drawing_tool_scroll QScrollBar:vertical {{
+            width: 5px;
+            background: transparent;
+            margin: 0px;
+            padding: 0px;
+        }}
+        QScrollArea#drawing_tool_scroll QScrollBar::handle:vertical {{
+            background: {t['scrollbar_handle']};
+            border-radius: 3px;
+            min-height: 20px;
+        }}
+        QScrollArea#drawing_tool_scroll QScrollBar::handle:vertical:hover {{
+            background: {t['scrollbar_hover']};
+        }}
+        QScrollArea#drawing_tool_scroll QScrollBar::add-line:vertical,
+        QScrollArea#drawing_tool_scroll QScrollBar::sub-line:vertical {{
+            height: 0;
+        }}
+        /* 画笔菜单样式 */
+        QMenu {{
+            background: {t['card_bg']};
+            border: 1px solid {t['border']};
+            border-radius: 8px;
+            padding: 6px;
+        }}
+        QMenu::item {{
+            padding: 6px 10px;
+            border-radius: 4px;
+            color: {t['text_primary']};
+        }}
+        QMenu::item:selected {{
+            background: {t['list_hover_bg']};
+            color: {t['primary']};
+        }}
+        QMenu::separator {{
+            height: 1px;
+            background: {t['border']};
+            margin: 4px 6px;
         }}
         """,
         "tool_group_label": f"""
@@ -1113,6 +1190,7 @@ def get_drawing_board_qss(t: Dict[str, Any]) -> Dict[str, str]:
         """,
         "color_swatch_active": f"""
         QPushButton {{
+            background: {t['card_bg']};
             border: 2px solid {t['primary']};
             border-radius: 6px;
             min-width: 22px;

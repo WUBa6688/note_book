@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QColorDialog, QFileDialog, QMessageBox, QButtonGroup, QMenu, QApplication,
     QLayout, QLayoutItem, QGridLayout, QStackedWidget, QToolButton,
     QGraphicsPathItem, QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPolygonItem,
-    QGraphicsItemGroup,
+    QGraphicsItemGroup, QScrollArea,
 )
 
 from core.database import DatabaseManager, get_assets_dir, get_assets_root
@@ -238,12 +238,16 @@ except Exception:
 # ===========================================================================
 # 可绘制工具（选中互斥）
 _DRAW_TOOLS: List[Tuple[str, str]] = [
-    ("pen", "画笔"), ("brush_pen", "毛笔"), ("writing_pen", "书写笔"),
-    ("airbrush", "喷枪"), ("oil_brush", "油画笔"), ("crayon", "蜡笔"),
-    ("marker", "记号笔"), ("pencil", "铅笔"), ("watercolor", "水彩笔"),
+    ("pen_menu", "画笔"), ("airbrush", "喷枪"),
     ("brush", "刷子"), ("eraser", "橡皮"), ("color_picker", "取色"),
     ("fill", "填充"), ("text", "文字"),
     ("rect_select", "矩形选择"), ("free_select", "自由选择"),
+]
+# 画笔子类型（通过画笔按钮菜单选择）
+_PEN_TYPES: List[Tuple[str, str]] = [
+    ("pen", "普通画笔"), ("brush_pen", "毛笔"), ("writing_pen", "书写笔"),
+    ("oil_brush", "油画笔"), ("crayon", "蜡笔"),
+    ("marker", "记号笔"), ("pencil", "铅笔"), ("watercolor", "水彩笔"),
 ]
 # 形状工具（选中互斥，与绘图工具共用一组互斥）
 _SHAPE_TOOLS: List[Tuple[str, str]] = [
@@ -684,16 +688,30 @@ class DrawingBoardView(QWidget):
 
         self.tool_stack = QStackedWidget()
 
+        def wrap_in_scroll(panel_widget: QWidget) -> QScrollArea:
+            """将面板内容包装为可滚动区域。"""
+            scroll = QScrollArea()
+            scroll.setWidget(panel_widget)
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
+            scroll.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            scroll.setContentsMargins(0, 0, 0, 0)
+            # 滚动条样式在主题中通过 objectName 控制
+            scroll.setObjectName("drawing_tool_scroll")
+            return scroll
+
         # 页面 0：文件
-        self.tool_stack.addWidget(self._build_file_panel())
+        self.tool_stack.addWidget(wrap_in_scroll(self._build_file_panel()))
         # 页面 1：绘制（默认显示）
-        self.tool_stack.addWidget(self._build_draw_panel())
+        self.tool_stack.addWidget(wrap_in_scroll(self._build_draw_panel()))
         # 页面 2：形状
-        self.tool_stack.addWidget(self._build_shape_panel())
+        self.tool_stack.addWidget(wrap_in_scroll(self._build_shape_panel()))
         # 页面 3：颜色
-        self.tool_stack.addWidget(self._build_color_panel())
+        self.tool_stack.addWidget(wrap_in_scroll(self._build_color_panel()))
         # 页面 4：视图
-        self.tool_stack.addWidget(self._build_view_panel())
+        self.tool_stack.addWidget(wrap_in_scroll(self._build_view_panel()))
 
         self.tool_stack.setCurrentIndex(1)
         layout.addWidget(self.tool_stack, 1)
@@ -777,16 +795,43 @@ class DrawingBoardView(QWidget):
         return panel
 
     def _build_draw_panel(self) -> QWidget:
-        """绘制 Tab：全部画笔 + 橡皮 + 取色 + 填充 + 文字 + 选择工具。"""
+        """绘制 Tab：画笔（带类型选择菜单）+ 橡皮 + 取色 + 填充 + 文字 + 选择工具。"""
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(2, 4, 2, 4)
         layout.setSpacing(2)
 
-        # 绘制工具（画笔/橡皮/取色/填充/文字）
+        # 画笔菜单按钮（特殊处理：点击弹出菜单选择画笔类型）
+        self._current_pen_type = "pen"  # 默认普通画笔
+        pen_btn = QToolButton()
+        pen_btn.setObjectName("tool_pen_menu")
+        pen_btn.setProperty("tool_name", "pen")  # 工具名仍为 pen
+        pen_btn.setIcon(QIcon(DrawingIcon.create("pen")))
+        pen_btn.setIconSize(QSize(20, 20))
+        pen_btn.setFixedSize(44, 40)
+        pen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        pen_btn.setToolTip("画笔 - 点击选择画笔类型")
+        pen_btn.setCheckable(True)
+        self._tool_btn_group.addButton(pen_btn)
+        self._tool_btn_group.setId(pen_btn, len(self._tool_buttons))
+        self._tool_buttons["pen"] = pen_btn
+        self._tool_buttons["pen_menu"] = pen_btn
+
+        # 创建画笔类型菜单
+        pen_menu = QMenu(pen_btn)
+        for pen_name, pen_label in _PEN_TYPES:
+            action = pen_menu.addAction(QIcon(DrawingIcon.create(pen_name)), pen_label)
+            action.setData(pen_name)
+            action.triggered.connect(
+                lambda _c=False, n=pen_name: self._on_pen_type_changed(n))
+        pen_btn.setMenu(pen_menu)
+        pen_btn.clicked.connect(lambda: pen_btn.showMenu())
+        layout.addWidget(pen_btn)
+
+        # 其他绘制工具（橡皮/取色/填充/文字）
         for name, _ in _DRAW_TOOLS:
-            if name in ("rect_select", "free_select"):
-                continue  # 选择工具放下面
+            if name in ("pen_menu", "rect_select", "free_select"):
+                continue  # 画笔菜单已处理，选择工具放下面
             btn = self._make_tool_btn(name, name, checkable=True,
                                        tooltip=_DRAW_TOOLTIPS.get(name, ""))
             layout.addWidget(btn)
@@ -834,15 +879,25 @@ class DrawingBoardView(QWidget):
         self.primary_swatch = QPushButton()
         self.primary_swatch.setObjectName("primary_swatch")
         self.primary_swatch.setFixedSize(22, 22)
-        self.primary_switch = QPushButton()
         self.primary_swatch.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.primary_switch.setCursor(Qt.CursorShape.PointingHandCursor)
         self.primary_swatch.clicked.connect(lambda: self._set_active_color("primary"))
-        self.primary_switch.clicked.connect(lambda: self._set_active_color("secondary"))
         self.primary_swatch.setToolTip("主色（左键绘制颜色），点击切换为激活色")
+        self.primary_swatch.setStyleSheet(
+            f"QPushButton {{ background-color: {self.primary_color};"
+            f" border: 2px solid {THEMES['matcha']['primary']};"
+            f" border-radius: 6px; }}"
+        )
+        self.primary_switch = QPushButton()
+        self.primary_switch.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.primary_switch.clicked.connect(lambda: self._set_active_color("secondary"))
         self.primary_switch.setToolTip("次色（右键绘制颜色），点击切换为激活色")
         self.primary_switch.setObjectName("primary_switch")
         self.primary_switch.setFixedSize(22, 22)
+        self.primary_switch.setStyleSheet(
+            f"QPushButton {{ background-color: {self.secondary_color};"
+            f" border: 1px solid {THEMES['matcha']['border']};"
+            f" border-radius: 6px; }}"
+        )
         wrap = QFrame()
         wrap.setFixedSize(48, 28)
         wrap_layout = QHBoxLayout(wrap)
@@ -863,6 +918,7 @@ class DrawingBoardView(QWidget):
         pal_grid = QGridLayout(pal_container)
         pal_grid.setContentsMargins(0, 0, 0, 0)
         pal_grid.setSpacing(2)
+        t = THEMES[self.current_theme]
         for i, (name, hex_color) in enumerate(_PALETTE):
             sw = QPushButton()
             sw.setObjectName(f"swatch_{name}")
@@ -871,6 +927,15 @@ class DrawingBoardView(QWidget):
             sw.setCheckable(True)
             sw.setToolTip(hex_color)
             sw._color_hex = hex_color  # type: ignore
+            # 设置初始颜色样式
+            sw.setStyleSheet(
+                f"QPushButton {{ background: {hex_color};"
+                f" border: 1px solid {t['border']};"
+                f" border-radius: 6px;"
+                f" min-width: 22px; min-height: 22px; max-width: 22px; max-height: 22px;"
+                f" padding: 0px; }}"
+                f" QPushButton:hover {{ border: 2px solid {t['primary']}; border-radius: 6px; }}"
+            )
             sw.clicked.connect(lambda _c=False, b=sw: self._on_palette_clicked(b))
             self._palette_group.addButton(sw)
             self._palette_buttons[name] = sw
@@ -896,6 +961,13 @@ class DrawingBoardView(QWidget):
         self.custom_color_btn.setCheckable(False)
         self.custom_color_btn.clicked.connect(self._on_custom_color)
         self._tool_buttons["custom_color"] = self.custom_color_btn  # type: ignore
+        # 设置无框样式，与调色板风格统一
+        t = THEMES[self.current_theme]
+        self.custom_color_btn.setStyleSheet(
+            f"QToolButton {{ background: transparent; border: none; border-radius: 6px; }}"
+            f"QToolButton:hover {{ background: {t['list_hover_bg']}; }}"
+            f"QToolButton:pressed {{ background: {t['selection_bg']}; }}"
+        )
         layout.addWidget(self.custom_color_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # 分隔线
@@ -935,6 +1007,13 @@ class DrawingBoardView(QWidget):
         self.fill_btn.setToolTip("切换形状填充模式：空心 / 实心（仅形状工具有效）")
         self.fill_btn.clicked.connect(self._on_fill_toggled)
         self._tool_buttons["fill_toggle"] = self.fill_btn  # type: ignore
+        # 设置无框样式，与调色板风格统一
+        self.fill_btn.setStyleSheet(
+            f"QToolButton {{ background: transparent; border: none; border-radius: 6px; }}"
+            f"QToolButton:hover {{ background: {t['list_hover_bg']}; }}"
+            f"QToolButton:checked {{ background: {t['primary']}; border: none; }}"
+            f"QToolButton:pressed {{ background: {t['selection_bg']}; }}"
+        )
         layout.addWidget(self.fill_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         layout.addStretch()
@@ -1051,6 +1130,19 @@ class DrawingBoardView(QWidget):
     # -------------------------------------------------------------------
     # 工具切换 / 颜色 / 粗细 / 填充
     # -------------------------------------------------------------------
+    def _on_pen_type_changed(self, pen_type: str):
+        """画笔类型切换：更新按钮图标并激活该工具。"""
+        self._current_pen_type = pen_type
+        pen_btn = self._tool_buttons.get("pen")
+        if pen_btn:
+            pen_btn.setIcon(QIcon(DrawingIcon.create(pen_type)))
+            # 更新 tooltip
+            pen_label = next((label for n, label in _PEN_TYPES if n == pen_type), "画笔")
+            pen_btn.setToolTip(f"{pen_label} - 当前画笔类型")
+            # 激活画笔工具
+            pen_btn.setChecked(True)
+            self._set_tool("pen")
+
     def _on_tool_clicked(self, btn_id: int):
         btn = self._tool_btn_group.button(btn_id)
         if btn is None:
@@ -1103,8 +1195,11 @@ class DrawingBoardView(QWidget):
 
     def _set_tool(self, name: str):
         """切换当前工具：deactivate 旧工具，实例化新工具，独立恢复粗细。"""
+        # 画笔工具使用当前选择的画笔类型
+        tool_name = self._current_pen_type if name == "pen" else name
+
         # 保存上一个工具的粗细
-        if self.current_tool_name != name:
+        if self.current_tool_name != tool_name:
             self._tool_thickness[self.current_tool_name] = self.pen_width
 
         # deactivate 旧工具
@@ -1113,25 +1208,26 @@ class DrawingBoardView(QWidget):
                 self.current_tool.deactivate()
             except Exception:
                 pass
-        self.current_tool_name = name
+        self.current_tool_name = tool_name
         # 实例化新工具（后端未就绪时返回 None）
         try:
-            self.current_tool = _backend_create_tool(name, self)
+            self.current_tool = _backend_create_tool(tool_name, self)
         except Exception:
             self.current_tool = None
-        # 同步按钮选中态
-        btn = self._tool_buttons.get(name)
+        # 同步按钮选中态（画笔按钮始终检查 "pen"）
+        check_btn_name = name if name != "pen_menu" else "pen"
+        btn = self._tool_buttons.get(check_btn_name)
         if btn is not None and btn.isCheckable() and not btn.isChecked():
             btn.setChecked(True)
-        # 设置画布光标
-        cursor = create_tool_cursor(name)
+        # 设置画布光标（使用实际的画笔类型）
+        cursor = create_tool_cursor(tool_name)
         if cursor is not None:
             self.view.setCursor(cursor)
         elif self.current_tool is None:
             self.view.setCursor(Qt.CursorShape.ArrowCursor)
         # 加载该工具的独立粗细
-        smin, smax, sdefault = _tool_thickness_range(name)
-        saved = self._tool_thickness.get(name, sdefault)
+        smin, smax, sdefault = _tool_thickness_range(tool_name)
+        saved = self._tool_thickness.get(tool_name, sdefault)
         clamped = min(max(saved, smin), smax)
         self.pen_width = clamped
         # 同步双滑块
@@ -1571,7 +1667,9 @@ class DrawingBoardView(QWidget):
     # 状态栏
     # -------------------------------------------------------------------
     def _update_status_tool(self):
-        label = dict(_DRAW_TOOLS + _SHAPE_TOOLS).get(self.current_tool_name, self.current_tool_name)
+        # 先在画笔子类型中查找
+        label = dict(_PEN_TYPES + _DRAW_TOOLS + _SHAPE_TOOLS).get(
+            self.current_tool_name, self.current_tool_name)
         self._update_status()
 
     def _update_status_coord(self, scene_pos: QPointF):
@@ -1622,7 +1720,9 @@ class DrawingBoardView(QWidget):
             hex_color = btn._color_hex  # type: ignore
             active = (self._palette_group.checkedButton() is btn)
             base = qss["color_swatch_active"] if active else qss["color_swatch"]
-            btn.setStyleSheet(f"{base}\nQPushButton {{ background-color: {hex_color}; }}")
+            # 用实际颜色替换基础样式中的 card_bg 背景色
+            swatch_style = base.replace(f"background: {t['card_bg']};", f"background: {hex_color};")
+            btn.setStyleSheet(swatch_style)
         # 主/次色块
         self._refresh_color_styles()
         # 画布视图
@@ -1642,6 +1742,20 @@ class DrawingBoardView(QWidget):
         for lbl in self.findChildren(QLabel):
             if lbl.objectName() == "drawing_group_label":
                 lbl.setStyleSheet(qss["tool_group_label"])
+        # 重新设置颜色面板下半部分按钮的无框样式
+        if hasattr(self, 'custom_color_btn') and self.custom_color_btn is not None:
+            self.custom_color_btn.setStyleSheet(
+                f"QToolButton {{ background: transparent; border: none; border-radius: 6px; }}"
+                f"QToolButton:hover {{ background: {t['list_hover_bg']}; }}"
+                f"QToolButton:pressed {{ background: {t['selection_bg']}; }}"
+            )
+        if hasattr(self, 'fill_btn') and self.fill_btn is not None:
+            self.fill_btn.setStyleSheet(
+                f"QToolButton {{ background: transparent; border: none; border-radius: 6px; }}"
+                f"QToolButton:hover {{ background: {t['list_hover_bg']}; }}"
+                f"QToolButton:checked {{ background: {t['primary']}; border: none; }}"
+                f"QToolButton:pressed {{ background: {t['selection_bg']}; }}"
+            )
 
     def _refresh_color_styles(self):
         """刷新主/次色块样式（叠加显示 + 激活态高亮）。"""
@@ -1666,7 +1780,9 @@ class DrawingBoardView(QWidget):
             hex_color = btn._color_hex  # type: ignore
             active = (self._palette_group.checkedButton() is btn)
             base = qss["color_swatch_active"] if active else qss["color_swatch"]
-            btn.setStyleSheet(f"{base}\nQPushButton {{ background-color: {hex_color}; }}")
+            # 用实际颜色替换基础样式中的 card_bg 背景色
+            swatch_style = base.replace(f"background: {t['card_bg']};", f"background: {hex_color};")
+            btn.setStyleSheet(swatch_style)
 
     # -------------------------------------------------------------------
     # 事件 / 资源清理
