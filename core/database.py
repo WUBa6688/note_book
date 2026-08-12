@@ -21,6 +21,7 @@ class Note:
     category_id: Optional[int]
     created_at: str
     updated_at: str
+    is_private: int = 0
 
 
 _UNSET = object()
@@ -81,6 +82,11 @@ class DatabaseManager:
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_category ON notes(category_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updated_at DESC)")
+        # 迁移：为旧数据库添加 is_private 列
+        try:
+            cursor.execute("ALTER TABLE notes ADD COLUMN is_private INTEGER DEFAULT 0")
+        except Exception:
+            pass  # 列已存在
         self.conn.commit()
         self._init_default_data()
 
@@ -289,6 +295,21 @@ def zhuibook_demo():
         )
         self.conn.commit()
         return self.get_note(note_id)
+
+    def set_note_private(self, note_id: int, is_private: bool):
+        """设置或取消笔记的私密状态。"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE notes SET is_private = ? WHERE id = ?",
+            (1 if is_private else 0, note_id)
+        )
+        self.conn.commit()
+
+    def get_private_notes(self) -> List[Note]:
+        """获取所有私密笔记。"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM notes WHERE is_private = 1 ORDER BY updated_at DESC")
+        return [Note(**dict(r)) for r in cursor.fetchall()]
 
     def delete_note(self, note_id: int):
         cursor = self.conn.cursor()

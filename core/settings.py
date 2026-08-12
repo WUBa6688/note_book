@@ -11,6 +11,7 @@ def _settings_path() -> str:
 _DEFAULT_SETTINGS = {
     "bg_image_path": "",
     "bg_image_alpha": 0.18,
+    "private_password_hash": "",
 }
 
 

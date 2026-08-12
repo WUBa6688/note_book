@@ -290,6 +290,8 @@ class MainWindow(QMainWindow):
         self._update_status(f"✅ 画板已插入笔记：{md_path}")
 
     def closeEvent(self, event):
+        # 退出时锁定私密笔记
+        self.sidebar.lock_private()
         self._flush_editor_save()
         # 笔记未保存内容确认
         if self._pending_save and self.current_note_id:
